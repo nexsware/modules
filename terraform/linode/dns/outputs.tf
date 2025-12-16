@@ -10,7 +10,7 @@ output "record_name" {
 
 output "record_type" {
     description = "The type of the DNS record"
-    value = try(linode_domain_record.main[0].type, "Record not found")
+    value = try(linode_domain_record.main[0].record_type, "Record not found")
 }
 
 output "record_target" {
