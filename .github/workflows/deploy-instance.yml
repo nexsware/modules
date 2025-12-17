@@ -49,6 +49,7 @@ on:
 jobs:
   deploy-instance:
     runs-on: ubuntu-latest
+    if: ${{ inputs.environment != 'prod' || github.ref == 'refs/heads/main' }}
     environment: ${{ inputs.environment }}
     outputs:
       instance_id: ${{ steps.terraform-apply.outputs.instance_id }}
