@@ -14,6 +14,6 @@ resource "linode_instance" "this" {
 # attach firewalls if any are provided
 resource "linode_firewall_device" "this" {
     entity_id = linode_instance.this.id
-    firewall_id = var.firewall_ids[element(keys(var.firewall_ids), count.index)]
+    firewall_id = element(var.firewall_ids, count.index)
     count  = length(var.firewall_ids) > 0 ? length(var.firewall_ids) : 0
 }
