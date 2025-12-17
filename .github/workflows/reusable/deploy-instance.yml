@@ -27,6 +27,10 @@ on:
         description: 'Root Password for Linode Instance'
         required: true
         type: string
+      environment:
+        description: 'Deployment environment (e.g., test, prod)'
+        required: true
+        type: string
       terraform_dir:
         description: 'Directory containing Terraform configuration'
         required: true
