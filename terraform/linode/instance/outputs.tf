@@ -1,9 +1,9 @@
-output "instance_id" {
+output "id" {
   description = "The ID of the Linode instance"
   value       = linode_instance.this.id
 }
 
-output "ipv4_address" {
+output "ip_address" {
   description = "The primary IPv4 address of the Linode instance"
   value       = try(one(linode_instance.this.ipv4), null)
 }
@@ -36,4 +36,14 @@ output "private_ip" {
 output "image" {
   description = "The image used for the Linode instance"
   value       = linode_instance.this.image
+}
+
+output "status" {
+  description = "The current status of the Linode instance"
+  value       = linode_instance.this.status
+}
+
+output "specs" {
+    description = "The specifications of the instance created"
+    value       = linode_instance.this.specs
 }

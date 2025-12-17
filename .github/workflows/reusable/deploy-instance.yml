@@ -1,0 +1,93 @@
+name: Deploy Linode Instance (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      linode_token:
+        description: 'Linode API Token'
+        required: true
+        type: string
+      region:
+        description: 'Linode Region'
+        required: true
+        type: string
+      instance_type:
+        description: 'Linode Instance Type'
+        required: true
+        type: string
+      image:
+        description: 'Linode Image'
+        required: true
+        type: string
+      label:
+        description: 'Linode Instance Label'
+        required: true
+        type: string
+      root_pass:
+        description: 'Root Password for Linode Instance'
+        required: true
+        type: string
+      terraform_dir:
+        description: 'Directory containing Terraform configuration'
+        required: true
+        type: string
+        default: './terraform/linode/instance'
+      secrets:
+        LINODE_TOKEN:
+          description: 'Linode API Token'
+          required: true
+        ROOT_PASS:
+          description: 'Root Password for Linode Instance'
+          required: true
+        SSH_KEYS:
+          description: 'SSH Public Keys for Linode Instance'
+          required: true
+        outputs:
+          instance_id:
+            value: ${{ jobs.deploy-instance.outputs.id }}
+          ip_address:
+            value: ${{ jobs.deploy-instance.outputs.ip_address }}
+
+jobs:
+  deploy-instance:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      instance_id: ${{ steps.terraform-apply.outputs.id }}
+      ip_address: ${{ steps.terraform-apply.outputs.ip_address }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.6.0'
+          terraform_wrapper: false
+
+      - name: Create Terraform Variables File
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          cat > terraform.tfvars <<EOF
+          linode_token = "${{ inputs.linode_token }}"
+          region = "${{ inputs.region }}"
+          type = "${{ inputs.instance_type }}"
+          image = "${{ inputs.image }}"
+          label = "${{ inputs.label }}"
+          root_pass = "${{ inputs.root_pass }}"
+          authorized_keys = ["${{ secrets.SSH_KEYS }}"]
+          tags = [${{ inputs.environment }}]
+          EOF
+
+      - name: Terraform Init
+        id: terraform-init
+        working-directory: ${{ inputs.terraform_dir }}
+        run: terraform init
+
+      - name: Terraform Apply
+        id: terraform-apply
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          terraform apply -auto-approve
+          echo "::set-output name=instance_id::$(terraform output -raw instance_id)"
+          echo "::set-output name=ip_address::$(terraform output -raw ip_address)"
