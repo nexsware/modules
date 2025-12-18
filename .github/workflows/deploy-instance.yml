@@ -77,8 +77,8 @@ jobs:
           image = "${{ inputs.image }}"
           label = "${{ inputs.label }}"
           root_pass = "${{ secrets.ROOT_PASS }}"
-          authorized_keys = ["${{ secrets.SSH_PUBLIC_KEY }}"]
-          tags = ["${{ inputs.environment }}"]
+          authorized_keys = [$(if [ -n "${{ secrets.SSH_PUBLIC_KEY }}" ]; then echo '"${{ secrets.SSH_PUBLIC_KEY }}"'; fi)]
+          tags = [$(if [ -n "${{ inputs.environment }}" ]; then echo '"${{ inputs.environment }}"'; fi)]
           EOF
 
       - name: Terraform Init
