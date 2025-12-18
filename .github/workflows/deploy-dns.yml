@@ -1,0 +1,99 @@
+name: Deploy DNS Record (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      domain_id:
+        description: 'The ID of the existing Linode domain'
+        required: true
+        type: number
+      domain_name:
+        description: 'The name of the existing Linode domain'
+        required: true
+        type: string
+      domain_type:
+        description: 'The type of the existing Linode domain'
+        required: true
+        type: string
+      subdomain:
+        description: 'The subdomain to be added'
+        required: true
+        type: string
+      target_ip:
+        description: 'The target IP address for the subdomain'
+        required: true
+        type: string
+      record_type:
+        description: 'The type of the DNS record (e.g., A, AAAA, CNAME)'
+        required: false
+        type: string
+        default: 'A'
+      ttl_sec:
+        description: 'The Time to Live (TTL) for the DNS record in seconds'
+        required: false
+        type: number
+        default: 300
+      create_dns_record:
+        description: 'Whether to create a DNS record'
+        required: false
+        type: boolean
+        default: true
+      terraform_dir:
+        description: 'Directory containing Terraform configuration'
+        required: false
+        type: string
+        default: 'modules/terraform/linode/dns'
+    secrets:
+      LINODE_TOKEN:
+        description: 'Linode API Token'
+        required: true
+    outputs:
+      record_id:
+        description: 'The ID of the created DNS record'
+        value: ${{ jobs.deploy-dns.outputs.record_id }}
+
+jobs:
+  deploy-dns:
+    runs-on: ubuntu-latest
+    outputs:
+      record_id: ${{ steps.terraform-apply.outputs.record_id }}
+    steps:
+      - name: Checkout Terraform Modules
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: '1.6.0'
+          terraform_wrapper: false
+
+      - name: Create Terraform Variables File
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          cat > terraform.tfvars <<EOF
+          linode_token = "${{ secrets.LINODE_TOKEN }}"
+          domain_id = ${{ inputs.domain_id }}
+          domain_name = "${{ inputs.domain_name }}"
+          domain_type = "${{ inputs.domain_type }}"
+          subdomain = "${{ inputs.subdomain }}"
+          target_ip = "${{ inputs.target_ip }}"
+          record_type = "${{ inputs.record_type }}"
+          ttl_sec = ${{ inputs.ttl_sec }}
+          create_dns_record = ${{ inputs.create_dns_record }}
+          EOF
+
+      - name: Terraform Init
+        working-directory: ${{ inputs.terraform_dir }}
+        run: terraform init
+
+      - name: Terraform Apply
+        id: terraform-apply
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          terraform apply -auto-approve
+          if [ "${{ inputs.create_dns_record }}" == "true" ]; then
+            echo "record_id=$(terraform output -raw record_id 2>/dev/null || echo 'none')" >> $GITHUB_OUTPUT
+          fi

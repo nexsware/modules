@@ -1,3 +1,9 @@
+variable "linode_token" {
+  type        = string
+  description = "The API token for Linode"
+  sensitive   = true
+}
+
 variable "domain_id" {
     description = "The ID of the existing linode domain"
     type        = number
