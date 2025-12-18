@@ -77,7 +77,7 @@ jobs:
           image = "${{ inputs.image }}"
           label = "${{ inputs.label }}"
           root_pass = "${{ secrets.ROOT_PASS }}"
-          authorized_keys = ["${{ secrets.SSH_KEYS }}"]
+          authorized_keys = ["${{ secrets.SSH_PUBLIC_KEY }}"]
           tags = ["${{ inputs.environment }}"]
           EOF
 
