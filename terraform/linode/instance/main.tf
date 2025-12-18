@@ -1,3 +1,12 @@
+terraform {
+  required_providers {
+    linode = { source = "linode/linode" }
+  }
+}
+
+variable "linode_token" { sensitive = true }
+provider "linode" { token = var.linode_token }
+
 resource "linode_instance" "this" {
     label           = var.label
     image           = var.image
