@@ -35,7 +35,7 @@ on:
       ROOT_PASS:
         description: 'Root Password for Linode Instance'
         required: false
-      SSH_KEYS:
+      SSH_PUBLIC_KEY:
         description: 'SSH Public Keys for Linode Instance'
         required: false
     outputs:
