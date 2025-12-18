@@ -15,14 +15,15 @@ on:
         description: 'Linode Image'
         required: true
         type: string
-      label:
-        description: 'Linode Instance Label'
-        required: true
-        type: string
       environment:
         description: 'Deployment environment (e.g., test, prod)'
         required: true
         type: string
+      application_name:
+        description: 'Application Name'
+        required: false
+        type: string
+        default: ''
       terraform_dir:
         description: 'Directory containing Terraform configuration'
         required: false
@@ -75,7 +76,7 @@ jobs:
           region = "${{ inputs.region }}"
           type = "${{ inputs.instance_type }}"
           image = "${{ inputs.image }}"
-          label = "${{ inputs.label }}"
+          label = "${{ inputs.environment }}-${{ inputs.application_name }}"
           root_pass = "${{ secrets.ROOT_PASS }}"
           authorized_keys = [$(if [ -n "${{ secrets.SSH_PUBLIC_KEY }}" ]; then echo '"${{ secrets.SSH_PUBLIC_KEY }}"'; fi)]
           tags = [$(if [ -n "${{ inputs.environment }}" ]; then echo '"${{ inputs.environment }}"'; fi)]
