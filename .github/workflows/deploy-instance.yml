@@ -93,3 +93,51 @@ jobs:
           terraform apply -auto-approve
           echo "instance_id=$(terraform output -raw id)" >> $GITHUB_OUTPUT
           echo "ip_address=$(terraform output -raw ip_address)" >> $GITHUB_OUTPUT
+
+      - name: Wait for Instance to be Ready
+        run: |
+          echo "Waiting for instance to boot and SSH to be available..."
+          IP_ADDRESS="${{ steps.terraform-apply.outputs.ip_address }}"
+          for i in {1..30}; do
+            if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$IP_ADDRESS/22" 2>/dev/null; then
+              echo "SSH is available on $IP_ADDRESS"
+              sleep 10  # Give SSH service time to fully initialize
+              break
+            fi
+            echo "Waiting for SSH... (attempt $i/30)"
+            sleep 10
+          done
+
+      - name: Verify and Add SSH Key to Server
+        if: ${{ secrets.SSH_PUBLIC_KEY != '' }}
+        run: |
+          IP_ADDRESS="${{ steps.terraform-apply.outputs.ip_address }}"
+
+          # Install sshpass if needed (for password authentication)
+          sudo apt-get update && sudo apt-get install -y sshpass
+
+          echo "Verifying SSH key on server..."
+
+          # Try to add the SSH key using root password
+          sshpass -p "${{ secrets.ROOT_PASS }}" ssh -o StrictHostKeyChecking=no root@$IP_ADDRESS << 'ENDSSH'
+          # Create .ssh directory if it doesn't exist
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          # Check if the key already exists
+          SSH_KEY="${{ secrets.SSH_PUBLIC_KEY }}"
+          if ! grep -q "$SSH_KEY" ~/.ssh/authorized_keys 2>/dev/null; then
+            echo "Adding SSH public key to authorized_keys..."
+            echo "$SSH_KEY" >> ~/.ssh/authorized_keys
+            chmod 600 ~/.ssh/authorized_keys
+            echo "SSH key added successfully"
+          else
+            echo "SSH key already exists in authorized_keys"
+          fi
+
+          # Display authorized keys for verification
+          echo "Current authorized keys:"
+          cat ~/.ssh/authorized_keys
+          ENDSSH
+
+          echo "SSH key verification complete"
