@@ -55,9 +55,9 @@ runs:
       shell: bash
       run: |
         mkdir -p ~/.ssh
-        echo "${{ inputs.ssh-private-key }}" > ~/.ssh/deploy_key
+        printf '%s\n' '${{ inputs.ssh-private-key }}' > ~/.ssh/deploy_key
         chmod 600 ~/.ssh/deploy_key
-        ssh-keyscan -H ${{ inputs.server-ip }} >> ~/.ssh/known_hosts
+        ssh-keyscan -H ${{ inputs.server-ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
     - name: Install Let's Encrypt Certificate
       if: ${{ inputs.cert-method == 'letsencrypt' }}
