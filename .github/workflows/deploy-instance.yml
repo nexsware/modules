@@ -109,8 +109,13 @@ jobs:
           done
 
       - name: Verify and Add SSH Key to Server
-        if: ${{ secrets.SSH_PUBLIC_KEY }}
         run: |
+          # Check if SSH_PUBLIC_KEY is provided
+          if [ -z "${{ secrets.SSH_PUBLIC_KEY }}" ]; then
+            echo "No SSH_PUBLIC_KEY provided, skipping SSH key setup"
+            exit 0
+          fi
+
           IP_ADDRESS="${{ steps.terraform-apply.outputs.ip_address }}"
 
           # Install sshpass if needed (for password authentication)
