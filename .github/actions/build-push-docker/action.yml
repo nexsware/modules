@@ -74,18 +74,19 @@ runs:
         username: ${{ inputs.registry-username }}
         password: ${{ inputs.registry-token }}
 
-    - name: Extract Repository Name
-      id: repo-name
+    - name: Extract Repository Owner
+      id: repo-owner
       shell: bash
       run: |
-        REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
-        echo "repo_name=$REPO_NAME" >> $GITHUB_OUTPUT
+        # Extract just the owner/org name from GITHUB_REPOSITORY (owner/repo)
+        OWNER=$(echo "${GITHUB_REPOSITORY}" | cut -d'/' -f1 | tr '[:upper:]' '[:lower:]')
+        echo "owner=$OWNER" >> $GITHUB_OUTPUT
 
     - name: Extract Metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ inputs.registry }}/${{ steps.repo-name.outputs.repo_name }}/${{ inputs.application-name }}
+        images: ${{ inputs.registry }}/${{ steps.repo-owner.outputs.owner }}/${{ inputs.application-name }}
         tags: |
           type=raw,value=${{ steps.generate-tag.outputs.tag }}
           type=raw,value=${{ inputs.environment }}
