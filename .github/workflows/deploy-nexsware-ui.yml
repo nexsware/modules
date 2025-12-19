@@ -107,11 +107,8 @@ on:
         type: string
         default: 'bridge'
     secrets:
-      REGISTRY_USERNAME:
-        description: 'Container registry username'
-        required: false
-      REGISTRY_TOKEN:
-        description: 'Container registry token/password'
+      GHCR_TOKEN:
+        description: 'GitHub Container Registry token (Personal Access Token with write:packages scope)'
         required: false
       NPM_TOKEN:
         description: 'NPM token for private packages'
@@ -180,8 +177,8 @@ jobs:
         with:
           application-name: ${{ inputs.application_name }}
           registry: ${{ inputs.registry }}
-          registry-username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
-          registry-token: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
+          registry-username: ${{ github.actor }}
+          registry-token: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
           context: app/${{ inputs.app_directory }}
           dockerfile: app/${{ inputs.app_directory }}/${{ inputs.dockerfile_path }}
           image-tag: ${{ inputs.image_tag }}
@@ -235,8 +232,8 @@ jobs:
           container-port: ${{ inputs.container_port }}
           host-port: ${{ inputs.host_port }}
           registry: ${{ inputs.registry }}
-          registry-username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
-          registry-token: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
+          registry-username: ${{ github.actor }}
+          registry-token: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
           env-vars: ${{ inputs.env_vars }}
           network-mode: ${{ inputs.network_mode }}
 
