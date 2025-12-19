@@ -150,32 +150,40 @@ jobs:
       image_digest: ${{ steps.docker-build.outputs.image-digest }}
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Application Repository
         uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Checkout Modules Repository
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
 
       - name: Setup Node.js and Install Dependencies
-        uses: ./.github/actions/setup-node-app
+        uses: ./modules/.github/actions/setup-node-app
         with:
           node-version: ${{ inputs.node_version }}
-          working-directory: ${{ inputs.app_directory }}
+          working-directory: app/${{ inputs.app_directory }}
           npm-token: ${{ secrets.NPM_TOKEN }}
 
       - name: Run Tests and Linting
-        uses: ./.github/actions/run-tests
+        uses: ./modules/.github/actions/run-tests
         with:
-          working-directory: ${{ inputs.app_directory }}
+          working-directory: app/${{ inputs.app_directory }}
           skip-tests: ${{ !inputs.run_tests }}
 
       - name: Build and Push Docker Image
         id: docker-build
-        uses: ./.github/actions/build-push-docker
+        uses: ./modules/.github/actions/build-push-docker
         with:
           application-name: ${{ inputs.application_name }}
           registry: ${{ inputs.registry }}
           registry-username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
           registry-token: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
-          context: ${{ inputs.app_directory }}
-          dockerfile: ${{ inputs.app_directory }}/${{ inputs.dockerfile_path }}
+          context: app/${{ inputs.app_directory }}
+          dockerfile: app/${{ inputs.app_directory }}/${{ inputs.dockerfile_path }}
           image-tag: ${{ inputs.image_tag }}
           environment: ${{ inputs.environment }}
           push: ${{ inputs.push_image }}
