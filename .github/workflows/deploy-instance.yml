@@ -109,7 +109,7 @@ jobs:
           done
 
       - name: Verify and Add SSH Key to Server
-        if: ${{ secrets.SSH_PUBLIC_KEY != '' }}
+        if: ${{ secrets.SSH_PUBLIC_KEY }}
         run: |
           IP_ADDRESS="${{ steps.terraform-apply.outputs.ip_address }}"
 
