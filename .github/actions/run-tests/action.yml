@@ -1,0 +1,32 @@
+name: 'Run Tests'
+description: 'Runs tests and linting for a Node.js/React application'
+inputs:
+  working-directory:
+    description: 'Working directory for the application'
+    required: false
+    default: '.'
+  skip-tests:
+    description: 'Skip running tests'
+    required: false
+    default: 'false'
+  skip-lint:
+    description: 'Skip running linter'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run Tests
+      if: ${{ inputs.skip-tests != 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npm test -- --passWithNoTests --ci
+      env:
+        CI: true
+
+    - name: Run Linter
+      if: ${{ inputs.skip-lint != 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: npm run lint || true

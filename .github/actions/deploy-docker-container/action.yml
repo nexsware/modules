@@ -1,0 +1,215 @@
+name: 'Deploy Docker Container'
+description: 'Deploys a Docker container to a server via SSH'
+inputs:
+  server-ip:
+    description: 'Server IP address'
+    required: true
+  ssh-private-key:
+    description: 'SSH private key for server access'
+    required: true
+  ssh-user:
+    description: 'SSH user for server access'
+    required: false
+    default: 'root'
+  container-name:
+    description: 'Name for the container'
+    required: true
+  image-name:
+    description: 'Full Docker image name with tag'
+    required: true
+  container-port:
+    description: 'Internal container port'
+    required: false
+    default: '80'
+  host-port:
+    description: 'Host port to expose container on'
+    required: false
+    default: '3000'
+  registry:
+    description: 'Container registry URL'
+    required: false
+    default: 'ghcr.io'
+  registry-username:
+    description: 'Registry username for pulling images'
+    required: false
+  registry-token:
+    description: 'Registry token/password for pulling images'
+    required: false
+  env-vars:
+    description: 'Environment variables for container (one per line, format: KEY=value)'
+    required: false
+    default: ''
+  network-mode:
+    description: 'Docker network mode'
+    required: false
+    default: 'bridge'
+  restart-policy:
+    description: 'Container restart policy'
+    required: false
+    default: 'unless-stopped'
+  additional-docker-args:
+    description: 'Additional docker run arguments'
+    required: false
+    default: ''
+
+outputs:
+  deploy-status:
+    description: 'Deployment status'
+    value: ${{ steps.deploy.outputs.status }}
+  container-id:
+    description: 'Deployed container ID'
+    value: ${{ steps.deploy.outputs.container_id }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup SSH Key
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.ssh-private-key }}" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -H ${{ inputs.server-ip }} >> ~/.ssh/known_hosts
+
+    - name: Install Docker on Server
+      shell: bash
+      run: |
+        ssh -i ~/.ssh/deploy_key ${{ inputs.ssh-user }}@${{ inputs.server-ip }} << 'ENDSSH'
+        set -e
+
+        # Check if Docker is installed
+        if ! command -v docker &> /dev/null; then
+          echo "Installing Docker..."
+          curl -fsSL https://get.docker.com -o get-docker.sh
+          sh get-docker.sh
+          systemctl enable docker
+          systemctl start docker
+          rm get-docker.sh
+        else
+          echo "Docker is already installed"
+        fi
+
+        docker --version
+        ENDSSH
+
+    - name: Deploy Container
+      id: deploy
+      shell: bash
+      run: |
+        ssh -i ~/.ssh/deploy_key ${{ inputs.ssh-user }}@${{ inputs.server-ip }} << 'ENDSSH'
+        set -e
+
+        # Login to container registry if credentials provided
+        if [ -n "${{ inputs.registry-token }}" ]; then
+          echo "${{ inputs.registry-token }}" | docker login ${{ inputs.registry }} \
+            -u "${{ inputs.registry-username }}" --password-stdin
+        fi
+
+        # Pull the latest image
+        echo "Pulling image: ${{ inputs.image-name }}"
+        docker pull ${{ inputs.image-name }}
+
+        # Stop and remove existing container if it exists
+        if [ "$(docker ps -aq -f name=${{ inputs.container-name }})" ]; then
+          echo "Stopping existing container: ${{ inputs.container-name }}"
+          docker stop ${{ inputs.container-name }} || true
+          docker rm ${{ inputs.container-name }} || true
+        fi
+
+        # Parse environment variables
+        ENV_ARGS=""
+        if [ -n "${{ inputs.env-vars }}" ]; then
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+              ENV_ARGS="$ENV_ARGS -e $line"
+            fi
+          done <<< "${{ inputs.env-vars }}"
+        fi
+
+        # Run the new container
+        echo "Starting container: ${{ inputs.container-name }}"
+        CONTAINER_ID=$(docker run -d \
+          --name ${{ inputs.container-name }} \
+          --restart ${{ inputs.restart-policy }} \
+          --network ${{ inputs.network-mode }} \
+          -p ${{ inputs.host-port }}:${{ inputs.container-port }} \
+          $ENV_ARGS \
+          ${{ inputs.additional-docker-args }} \
+          ${{ inputs.image-name }})
+
+        echo "Container ID: $CONTAINER_ID"
+
+        # Wait for container to be healthy
+        sleep 5
+
+        # Check container status
+        if docker ps | grep -q ${{ inputs.container-name }}; then
+          echo "Container is running successfully"
+          echo "status=success" >> $GITHUB_OUTPUT
+          echo "container_id=$CONTAINER_ID" >> $GITHUB_OUTPUT
+        else
+          echo "Container failed to start"
+          docker logs ${{ inputs.container-name }}
+          exit 1
+        fi
+
+        # Show container info
+        docker ps -f name=${{ inputs.container-name }}
+
+        ENDSSH
+
+    - name: Setup Nginx Reverse Proxy
+      shell: bash
+      run: |
+        ssh -i ~/.ssh/deploy_key ${{ inputs.ssh-user }}@${{ inputs.server-ip }} << 'ENDSSH'
+        set -e
+
+        # Install nginx if not present
+        if ! command -v nginx &> /dev/null; then
+          echo "Installing nginx..."
+          if [ -f /etc/debian_version ]; then
+            apt-get update
+            apt-get install -y nginx
+          elif [ -f /etc/redhat-release ]; then
+            yum install -y nginx
+          fi
+          systemctl enable nginx
+        fi
+
+        # Create nginx proxy configuration
+        cat > /etc/nginx/sites-available/${{ inputs.container-name }} << 'EOF'
+        server {
+            listen 80;
+            server_name _;
+
+            location / {
+                proxy_pass http://localhost:${{ inputs.host-port }};
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade \$http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto \$scheme;
+                proxy_cache_bypass \$http_upgrade;
+            }
+        }
+        EOF
+
+        # Enable the site
+        ln -sf /etc/nginx/sites-available/${{ inputs.container-name }} /etc/nginx/sites-enabled/${{ inputs.container-name }}
+
+        # Remove default site if exists
+        rm -f /etc/nginx/sites-enabled/default
+
+        # Test and reload nginx
+        nginx -t && systemctl reload nginx || systemctl start nginx
+
+        echo "Nginx reverse proxy configured"
+        ENDSSH
+
+    - name: Cleanup SSH Key
+      if: always()
+      shell: bash
+      run: |
+        rm -f ~/.ssh/deploy_key

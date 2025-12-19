@@ -1,0 +1,206 @@
+name: 'Install SSL Certificate'
+description: 'Installs SSL certificates on a server using certbot or custom certificates'
+inputs:
+  server-ip:
+    description: 'Server IP address'
+    required: true
+  ssh-private-key:
+    description: 'SSH private key for server access'
+    required: true
+  domain:
+    description: 'Domain name for the certificate'
+    required: true
+  email:
+    description: 'Email for Let''s Encrypt notifications'
+    required: false
+    default: ''
+  web-server:
+    description: 'Web server type (nginx or apache)'
+    required: false
+    default: 'nginx'
+  cert-method:
+    description: 'Certificate method (letsencrypt or custom)'
+    required: false
+    default: 'letsencrypt'
+  custom-cert-path:
+    description: 'Path to custom certificate file'
+    required: false
+    default: ''
+  custom-key-path:
+    description: 'Path to custom private key file'
+    required: false
+    default: ''
+  custom-chain-path:
+    description: 'Path to custom certificate chain file'
+    required: false
+    default: ''
+  ssh-user:
+    description: 'SSH user for server access'
+    required: false
+    default: 'root'
+  certbot-extra-args:
+    description: 'Extra arguments for certbot'
+    required: false
+    default: ''
+
+outputs:
+  cert-status:
+    description: 'Status of certificate installation'
+    value: ${{ steps.install-cert.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup SSH Key
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.ssh-private-key }}" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -H ${{ inputs.server-ip }} >> ~/.ssh/known_hosts
+
+    - name: Install Let's Encrypt Certificate
+      if: ${{ inputs.cert-method == 'letsencrypt' }}
+      id: install-letsencrypt
+      shell: bash
+      run: |
+        ssh -i ~/.ssh/deploy_key ${{ inputs.ssh-user }}@${{ inputs.server-ip }} << 'ENDSSH'
+        set -e
+
+        # Install certbot if not present
+        if ! command -v certbot &> /dev/null; then
+          if [ -f /etc/debian_version ]; then
+            apt-get update
+            apt-get install -y certbot python3-certbot-${{ inputs.web-server }}
+          elif [ -f /etc/redhat-release ]; then
+            yum install -y certbot python3-certbot-${{ inputs.web-server }}
+          fi
+        fi
+
+        # Stop web server temporarily
+        systemctl stop ${{ inputs.web-server }} || true
+
+        # Obtain certificate
+        certbot certonly \
+          --standalone \
+          -d ${{ inputs.domain }} \
+          --non-interactive \
+          --agree-tos \
+          ${{ inputs.email != '' && format('--email {0}', inputs.email) || '--register-unsafely-without-email' }} \
+          ${{ inputs.certbot-extra-args }}
+
+        # Configure web server
+        if [ "${{ inputs.web-server }}" == "nginx" ]; then
+          # Create nginx SSL configuration
+          cat > /etc/nginx/conf.d/ssl-${{ inputs.domain }}.conf << 'EOF'
+        server {
+            listen 443 ssl http2;
+            server_name ${{ inputs.domain }};
+
+            ssl_certificate /etc/letsencrypt/live/${{ inputs.domain }}/fullchain.pem;
+            ssl_certificate_key /etc/letsencrypt/live/${{ inputs.domain }}/privkey.pem;
+
+            ssl_protocols TLSv1.2 TLSv1.3;
+            ssl_ciphers HIGH:!aNULL:!MD5;
+            ssl_prefer_server_ciphers on;
+
+            # Add your location blocks here
+        }
+
+        server {
+            listen 80;
+            server_name ${{ inputs.domain }};
+            return 301 https://$host$request_uri;
+        }
+        EOF
+
+          nginx -t && systemctl restart nginx
+
+        elif [ "${{ inputs.web-server }}" == "apache" ]; then
+          # Enable Apache SSL module
+          a2enmod ssl
+          a2ensite default-ssl
+          systemctl restart apache2
+        fi
+
+        # Setup auto-renewal
+        systemctl enable certbot.timer || true
+        systemctl start certbot.timer || true
+
+        echo "status=success" >> $GITHUB_OUTPUT
+        ENDSSH
+
+    - name: Install Custom Certificate
+      if: ${{ inputs.cert-method == 'custom' }}
+      id: install-custom
+      shell: bash
+      run: |
+        # Copy certificate files to server
+        scp -i ~/.ssh/deploy_key ${{ inputs.custom-cert-path }} \
+          ${{ inputs.ssh-user }}@${{ inputs.server-ip }}:/tmp/cert.crt
+        scp -i ~/.ssh/deploy_key ${{ inputs.custom-key-path }} \
+          ${{ inputs.ssh-user }}@${{ inputs.server-ip }}:/tmp/cert.key
+
+        if [ -n "${{ inputs.custom-chain-path }}" ]; then
+          scp -i ~/.ssh/deploy_key ${{ inputs.custom-chain-path }} \
+            ${{ inputs.ssh-user }}@${{ inputs.server-ip }}:/tmp/chain.crt
+        fi
+
+        ssh -i ~/.ssh/deploy_key ${{ inputs.ssh-user }}@${{ inputs.server-ip }} << 'ENDSSH'
+        set -e
+
+        # Create SSL directory
+        mkdir -p /etc/ssl/custom
+
+        # Move certificates
+        mv /tmp/cert.crt /etc/ssl/custom/${{ inputs.domain }}.crt
+        mv /tmp/cert.key /etc/ssl/custom/${{ inputs.domain }}.key
+        [ -f /tmp/chain.crt ] && mv /tmp/chain.crt /etc/ssl/custom/${{ inputs.domain }}-chain.crt
+
+        # Set permissions
+        chmod 600 /etc/ssl/custom/${{ inputs.domain }}.key
+        chmod 644 /etc/ssl/custom/${{ inputs.domain }}.crt
+
+        # Configure web server
+        if [ "${{ inputs.web-server }}" == "nginx" ]; then
+          cat > /etc/nginx/conf.d/ssl-${{ inputs.domain }}.conf << 'EOF'
+        server {
+            listen 443 ssl http2;
+            server_name ${{ inputs.domain }};
+
+            ssl_certificate /etc/ssl/custom/${{ inputs.domain }}.crt;
+            ssl_certificate_key /etc/ssl/custom/${{ inputs.domain }}.key;
+
+            ssl_protocols TLSv1.2 TLSv1.3;
+            ssl_ciphers HIGH:!aNULL:!MD5;
+            ssl_prefer_server_ciphers on;
+        }
+
+        server {
+            listen 80;
+            server_name ${{ inputs.domain }};
+            return 301 https://$host$request_uri;
+        }
+        EOF
+
+          nginx -t && systemctl restart nginx
+        fi
+
+        echo "status=success" >> $GITHUB_OUTPUT
+        ENDSSH
+
+    - name: Set Output
+      id: install-cert
+      shell: bash
+      run: |
+        if [ "${{ inputs.cert-method }}" == "letsencrypt" ]; then
+          echo "status=${{ steps.install-letsencrypt.outputs.status }}" >> $GITHUB_OUTPUT
+        else
+          echo "status=${{ steps.install-custom.outputs.status }}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Cleanup SSH Key
+      if: always()
+      shell: bash
+      run: |
+        rm -f ~/.ssh/deploy_key

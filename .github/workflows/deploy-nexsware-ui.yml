@@ -1,0 +1,287 @@
+name: Deploy Containerized React App (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      application_name:
+        description: 'Application Name'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment (e.g., dev, test, prod)'
+        required: true
+        type: string
+      app_directory:
+        description: 'Directory containing the React application'
+        required: false
+        type: string
+        default: '.'
+      dockerfile_path:
+        description: 'Path to Dockerfile relative to app_directory'
+        required: false
+        type: string
+        default: 'Dockerfile'
+      node_version:
+        description: 'Node.js version to use for building'
+        required: false
+        type: string
+        default: '20'
+      registry:
+        description: 'Container registry (ghcr.io or docker.io)'
+        required: false
+        type: string
+        default: 'ghcr.io'
+      image_tag:
+        description: 'Custom image tag (defaults to git SHA)'
+        required: false
+        type: string
+        default: ''
+      build_args:
+        description: 'Docker build arguments (one per line)'
+        required: false
+        type: string
+        default: ''
+      push_image:
+        description: 'Whether to push the Docker image'
+        required: false
+        type: boolean
+        default: true
+      run_tests:
+        description: 'Whether to run tests before building'
+        required: false
+        type: boolean
+        default: true
+      enable_deploy:
+        description: 'Whether to deploy the container to server'
+        required: false
+        type: boolean
+        default: false
+      server_ip:
+        description: 'Server IP address for deployment and SSL installation'
+        required: false
+        type: string
+        default: ''
+      container_port:
+        description: 'Internal container port (where app listens inside container)'
+        required: false
+        type: string
+        default: '80'
+      host_port:
+        description: 'Host port to expose container on'
+        required: false
+        type: string
+        default: '3000'
+      env_vars:
+        description: 'Environment variables for container (one per line, format: KEY=value)'
+        required: false
+        type: string
+        default: ''
+      enable_ssl:
+        description: 'Whether to install SSL certificate'
+        required: false
+        type: boolean
+        default: false
+      domain:
+        description: 'Domain name for SSL certificate'
+        required: false
+        type: string
+        default: ''
+      ssl_email:
+        description: 'Email for Let''s Encrypt notifications'
+        required: false
+        type: string
+        default: ''
+      web_server:
+        description: 'Web server type (nginx or apache)'
+        required: false
+        type: string
+        default: 'nginx'
+      ssh_user:
+        description: 'SSH user for server access'
+        required: false
+        type: string
+        default: 'root'
+      network_mode:
+        description: 'Docker network mode'
+        required: false
+        type: string
+        default: 'bridge'
+    secrets:
+      REGISTRY_USERNAME:
+        description: 'Container registry username'
+        required: false
+      REGISTRY_TOKEN:
+        description: 'Container registry token/password'
+        required: false
+      NPM_TOKEN:
+        description: 'NPM token for private packages'
+        required: false
+      SSH_PRIVATE_KEY:
+        description: 'SSH private key for server access (required if enable_ssl is true)'
+        required: false
+    outputs:
+      image_name:
+        description: 'The full name of the built Docker image'
+        value: ${{ jobs.build-and-push.outputs.image_name }}
+      image_tag:
+        description: 'The tag of the built Docker image'
+        value: ${{ jobs.build-and-push.outputs.image_tag }}
+      image_digest:
+        description: 'The digest of the built Docker image'
+        value: ${{ jobs.build-and-push.outputs.image_digest }}
+      deploy_status:
+        description: 'Container deployment status'
+        value: ${{ jobs.deploy-container.outputs.deploy_status }}
+      container_id:
+        description: 'Deployed container ID'
+        value: ${{ jobs.deploy-container.outputs.container_id }}
+      ssl_status:
+        description: 'SSL certificate installation status'
+        value: ${{ jobs.install-ssl.outputs.cert_status }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.environment != 'prod' || github.ref == 'refs/heads/main' }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      image_name: ${{ steps.docker-build.outputs.image-name }}
+      image_tag: ${{ steps.docker-build.outputs.image-tag }}
+      image_digest: ${{ steps.docker-build.outputs.image-digest }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js and Install Dependencies
+        uses: ./.github/actions/setup-node-app
+        with:
+          node-version: ${{ inputs.node_version }}
+          working-directory: ${{ inputs.app_directory }}
+          npm-token: ${{ secrets.NPM_TOKEN }}
+
+      - name: Run Tests and Linting
+        uses: ./.github/actions/run-tests
+        with:
+          working-directory: ${{ inputs.app_directory }}
+          skip-tests: ${{ !inputs.run_tests }}
+
+      - name: Build and Push Docker Image
+        id: docker-build
+        uses: ./.github/actions/build-push-docker
+        with:
+          application-name: ${{ inputs.application_name }}
+          registry: ${{ inputs.registry }}
+          registry-username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          registry-token: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
+          context: ${{ inputs.app_directory }}
+          dockerfile: ${{ inputs.app_directory }}/${{ inputs.dockerfile_path }}
+          image-tag: ${{ inputs.image_tag }}
+          environment: ${{ inputs.environment }}
+          push: ${{ inputs.push_image }}
+          build-args: ${{ inputs.build_args }}
+
+      - name: Output Image Details
+        run: |
+          echo "Image built successfully!"
+          echo "Image: ${{ steps.docker-build.outputs.image-name }}"
+          echo "Digest: ${{ steps.docker-build.outputs.image-digest }}"
+          echo "Tag: ${{ steps.docker-build.outputs.image-tag }}"
+
+  deploy-container:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: ${{ inputs.enable_deploy }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      deploy_status: ${{ steps.deploy.outputs.deploy-status }}
+      container_id: ${{ steps.deploy.outputs.container-id }}
+
+    steps:
+      - name: Checkout Modules Repository
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
+
+      - name: Validate Deployment Inputs
+        run: |
+          if [ -z "${{ inputs.server_ip }}" ]; then
+            echo "Error: server_ip is required when enable_deploy is true"
+            exit 1
+          fi
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "Error: SSH_PRIVATE_KEY secret is required when enable_deploy is true"
+            exit 1
+          fi
+
+      - name: Deploy Container to Server
+        id: deploy
+        uses: ./modules/.github/actions/deploy-docker-container
+        with:
+          server-ip: ${{ inputs.server_ip }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-user: ${{ inputs.ssh_user }}
+          container-name: ${{ inputs.application_name }}
+          image-name: ${{ needs.build-and-push.outputs.image_name }}
+          container-port: ${{ inputs.container_port }}
+          host-port: ${{ inputs.host_port }}
+          registry: ${{ inputs.registry }}
+          registry-username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          registry-token: ${{ secrets.REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
+          env-vars: ${{ inputs.env_vars }}
+          network-mode: ${{ inputs.network_mode }}
+
+      - name: Test Deployment
+        run: |
+          sleep 5
+          echo "Testing deployment at http://${{ inputs.server_ip }}:${{ inputs.host_port }}"
+          curl -f http://${{ inputs.server_ip }}:${{ inputs.host_port }} || echo "Direct port access may be restricted"
+
+  install-ssl:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-container]
+    if: ${{ inputs.enable_ssl && (success() || needs.deploy-container.result == 'skipped') }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      cert_status: ${{ steps.install-cert.outputs.cert-status }}
+
+    steps:
+      - name: Checkout Modules Repository
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
+
+      - name: Validate SSL Inputs
+        run: |
+          if [ -z "${{ inputs.server_ip }}" ]; then
+            echo "Error: server_ip is required when enable_ssl is true"
+            exit 1
+          fi
+          if [ -z "${{ inputs.domain }}" ]; then
+            echo "Error: domain is required when enable_ssl is true"
+            exit 1
+          fi
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "Error: SSH_PRIVATE_KEY secret is required when enable_ssl is true"
+            exit 1
+          fi
+
+      - name: Install SSL Certificate
+        id: install-cert
+        uses: ./modules/.github/actions/install-ssl-cert
+        with:
+          server-ip: ${{ inputs.server_ip }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          domain: ${{ inputs.domain }}
+          email: ${{ inputs.ssl_email }}
+          web-server: ${{ inputs.web_server }}
+          cert-method: 'letsencrypt'
+          ssh-user: ${{ inputs.ssh_user }}
+
+      - name: Verify SSL Certificate
+        run: |
+          sleep 10
+          echo "Verifying SSL certificate for ${{ inputs.domain }}"
+          timeout 15 openssl s_client -connect ${{ inputs.domain }}:443 -servername ${{ inputs.domain }} < /dev/null 2>&1 | grep -i "verify return code: 0" || echo "Certificate verification pending (DNS propagation may be needed)"

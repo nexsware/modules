@@ -1,0 +1,110 @@
+name: Install SSL Certificate (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      server_ip:
+        description: 'Server IP address'
+        required: true
+        type: string
+      domain:
+        description: 'Domain name for the certificate'
+        required: true
+        type: string
+      email:
+        description: 'Email for Let''s Encrypt notifications'
+        required: false
+        type: string
+        default: ''
+      web_server:
+        description: 'Web server type (nginx or apache)'
+        required: false
+        type: string
+        default: 'nginx'
+      cert_method:
+        description: 'Certificate method (letsencrypt or custom)'
+        required: false
+        type: string
+        default: 'letsencrypt'
+      ssh_user:
+        description: 'SSH user for server access'
+        required: false
+        type: string
+        default: 'root'
+      certbot_extra_args:
+        description: 'Extra arguments for certbot'
+        required: false
+        type: string
+        default: ''
+      environment:
+        description: 'Deployment environment'
+        required: false
+        type: string
+        default: 'production'
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: 'SSH private key for server access'
+        required: true
+      CUSTOM_CERT:
+        description: 'Custom certificate content (if using custom method)'
+        required: false
+      CUSTOM_KEY:
+        description: 'Custom private key content (if using custom method)'
+        required: false
+      CUSTOM_CHAIN:
+        description: 'Custom certificate chain content (if using custom method)'
+        required: false
+    outputs:
+      cert_status:
+        description: 'Status of certificate installation'
+        value: ${{ jobs.install-ssl.outputs.cert_status }}
+
+jobs:
+  install-ssl:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      cert_status: ${{ steps.install-cert.outputs.cert-status }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
+
+      - name: Prepare Custom Certificates
+        if: ${{ inputs.cert_method == 'custom' }}
+        run: |
+          mkdir -p /tmp/certs
+          echo "${{ secrets.CUSTOM_CERT }}" > /tmp/certs/cert.crt
+          echo "${{ secrets.CUSTOM_KEY }}" > /tmp/certs/cert.key
+          if [ -n "${{ secrets.CUSTOM_CHAIN }}" ]; then
+            echo "${{ secrets.CUSTOM_CHAIN }}" > /tmp/certs/chain.crt
+          fi
+
+      - name: Install SSL Certificate
+        id: install-cert
+        uses: ./modules/.github/actions/install-ssl-cert
+        with:
+          server-ip: ${{ inputs.server_ip }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          domain: ${{ inputs.domain }}
+          email: ${{ inputs.email }}
+          web-server: ${{ inputs.web_server }}
+          cert-method: ${{ inputs.cert_method }}
+          custom-cert-path: ${{ inputs.cert_method == 'custom' && '/tmp/certs/cert.crt' || '' }}
+          custom-key-path: ${{ inputs.cert_method == 'custom' && '/tmp/certs/cert.key' || '' }}
+          custom-chain-path: ${{ inputs.cert_method == 'custom' && '/tmp/certs/chain.crt' || '' }}
+          ssh-user: ${{ inputs.ssh_user }}
+          certbot-extra-args: ${{ inputs.certbot_extra_args }}
+
+      - name: Verify SSL Certificate
+        run: |
+          sleep 5
+          echo "Checking SSL certificate for ${{ inputs.domain }}"
+          timeout 10 openssl s_client -connect ${{ inputs.domain }}:443 -servername ${{ inputs.domain }} < /dev/null || true
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf /tmp/certs
