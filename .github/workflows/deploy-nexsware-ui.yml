@@ -76,26 +76,6 @@ on:
         required: false
         type: string
         default: ''
-      enable_ssl:
-        description: 'Whether to install SSL certificate'
-        required: false
-        type: boolean
-        default: false
-      domain:
-        description: 'Domain name for SSL certificate'
-        required: false
-        type: string
-        default: ''
-      ssl_email:
-        description: 'Email for Let''s Encrypt notifications'
-        required: false
-        type: string
-        default: ''
-      web_server:
-        description: 'Web server type (nginx or apache)'
-        required: false
-        type: string
-        default: 'nginx'
       ssh_user:
         description: 'SSH user for server access'
         required: false
@@ -132,9 +112,6 @@ on:
       container_id:
         description: 'Deployed container ID'
         value: ${{ jobs.deploy-container.outputs.container_id }}
-      ssl_status:
-        description: 'SSL certificate installation status'
-        value: ${{ jobs.install-ssl.outputs.cert_status }}
 
 jobs:
   build-and-push:
@@ -242,52 +219,3 @@ jobs:
           sleep 5
           echo "Testing deployment at http://${{ inputs.server_ip }}:${{ inputs.host_port }}"
           curl -f http://${{ inputs.server_ip }}:${{ inputs.host_port }} || echo "Direct port access may be restricted"
-
-  install-ssl:
-    runs-on: ubuntu-latest
-    needs: [build-and-push, deploy-container]
-    if: ${{ inputs.enable_ssl && (success() || needs.deploy-container.result == 'skipped') }}
-    environment: ${{ inputs.environment }}
-    outputs:
-      cert_status: ${{ steps.install-cert.outputs.cert-status }}
-
-    steps:
-      - name: Checkout Modules Repository
-        uses: actions/checkout@v4
-        with:
-          repository: nexsware/modules
-          path: modules
-
-      - name: Validate SSL Inputs
-        run: |
-          if [ -z "${{ inputs.server_ip }}" ]; then
-            echo "Error: server_ip is required when enable_ssl is true"
-            exit 1
-          fi
-          if [ -z "${{ inputs.domain }}" ]; then
-            echo "Error: domain is required when enable_ssl is true"
-            exit 1
-          fi
-          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
-            echo "Error: SSH_PRIVATE_KEY secret is required when enable_ssl is true"
-            exit 1
-          fi
-
-      - name: Install SSL Certificate
-        id: install-cert
-        uses: ./modules/.github/actions/install-ssl-cert
-        with:
-          server-ip: ${{ inputs.server_ip }}
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-          domain: ${{ inputs.domain }}
-          email: ${{ inputs.ssl_email }}
-          web-server: ${{ inputs.web_server }}
-          cert-method: 'letsencrypt'
-          ssh-user: ${{ inputs.ssh_user }}
-          backend-port: ${{ inputs.host_port }}
-
-      - name: Verify SSL Certificate
-        run: |
-          sleep 10
-          echo "Verifying SSL certificate for ${{ inputs.domain }}"
-          timeout 15 openssl s_client -connect ${{ inputs.domain }}:443 -servername ${{ inputs.domain }} < /dev/null 2>&1 | grep -i "verify return code: 0" || echo "Certificate verification pending (DNS propagation may be needed)"

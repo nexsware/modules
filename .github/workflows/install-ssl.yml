@@ -36,6 +36,11 @@ on:
         required: false
         type: string
         default: ''
+      backend_port:
+        description: 'Backend application port to proxy to (e.g., 3000)'
+        required: false
+        type: string
+        default: '3000'
       environment:
         description: 'Deployment environment'
         required: false
@@ -98,6 +103,7 @@ jobs:
           custom-chain-path: ${{ inputs.cert_method == 'custom' && '/tmp/certs/chain.crt' || '' }}
           ssh-user: ${{ inputs.ssh_user }}
           certbot-extra-args: ${{ inputs.certbot_extra_args }}
+          backend-port: ${{ inputs.backend_port }}
 
       - name: Verify SSL Certificate
         run: |
