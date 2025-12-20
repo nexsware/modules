@@ -1,0 +1,179 @@
+name: Deploy Linode Firewall (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      instance_id:
+        description: 'Linode Instance ID to attach the firewall to'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment (e.g., test, prod)'
+        required: true
+        type: string
+      application_name:
+        description: 'Application Name for firewall label'
+        required: false
+        type: string
+        default: ''
+      allow_ssh_from:
+        description: 'CIDR ranges allowed to SSH (comma-separated, e.g., "203.0.113.45/32"). Leave empty to auto-detect instance IP.'
+        required: false
+        type: string
+        default: ''
+      terraform_dir:
+        description: 'Directory containing Terraform configuration for firewall'
+        required: false
+        type: string
+        default: 'modules/terraform/linode/firewall'
+    secrets:
+      LINODE_TOKEN:
+        description: 'Linode API Token'
+        required: false
+    outputs:
+      firewall_id:
+        description: 'The ID of the created firewall'
+        value: ${{ jobs.deploy-firewall.outputs.firewall_id }}
+
+jobs:
+  deploy-firewall:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.environment != 'prod' || github.ref == 'refs/heads/main' }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      firewall_id: ${{ steps.terraform-apply.outputs.firewall_id }}
+    steps:
+      - name: Checkout Terraform Modules
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: '1.6.0'
+          terraform_wrapper: false
+
+      - name: Get Instance IP Address
+        id: get-instance-ip
+        run: |
+          if [ -n "${{ inputs.allow_ssh_from }}" ]; then
+            echo "Using provided CIDR ranges: ${{ inputs.allow_ssh_from }}"
+            echo "ssh_source=${{ inputs.allow_ssh_from }}" >> $GITHUB_OUTPUT
+          else
+            echo "Fetching instance IP address from Linode API..."
+            INSTANCE_IP=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+              "https://api.linode.com/v4/linode/instances/${{ inputs.instance_id }}" | \
+              jq -r '.ipv4[0]')
+            echo "Instance IP: $INSTANCE_IP"
+            echo "ssh_source=${INSTANCE_IP}/32" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Terraform Variables File
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          # Convert comma-separated CIDR ranges to JSON array
+          IFS=',' read -ra CIDRS <<< "${{ steps.get-instance-ip.outputs.ssh_source }}"
+          CIDRS_JSON="["
+          for i in "${!CIDRS[@]}"; do
+            CIDRS_JSON+="\"${CIDRS[$i]}\""
+            if [ $i -lt $(( ${#CIDRS[@]} - 1 )) ]; then
+              CIDRS_JSON+=","
+            fi
+          done
+          CIDRS_JSON+="]"
+
+          cat > terraform.tfvars <<EOF
+          linode_token = "${{ secrets.LINODE_TOKEN }}"
+          firewall_label = "${{ inputs.environment }}-${{ inputs.application_name }}-firewall"
+          firewall_tags = ["${{ inputs.environment }}"]
+          linodes = [${{ inputs.instance_id }}]
+          inbound_rules = [
+            {
+              label    = "allow-ssh"
+              action   = "ACCEPT"
+              protocol = "TCP"
+              ports    = "22"
+              ipv4     = ${CIDRS_JSON}
+              ipv6     = []
+            },
+            {
+              label    = "allow-http"
+              action   = "ACCEPT"
+              protocol = "TCP"
+              ports    = "80"
+              ipv4     = ["0.0.0.0/0"]
+              ipv6     = ["::/0"]
+            },
+            {
+              label    = "allow-https"
+              action   = "ACCEPT"
+              protocol = "TCP"
+              ports    = "443"
+              ipv4     = ["0.0.0.0/0"]
+              ipv6     = ["::/0"]
+            },
+            {
+              label    = "allow-spa"
+              action   = "ACCEPT"
+              protocol = "TCP"
+              ports    = "3000"
+              ipv4     = ["0.0.0.0/0"]
+              ipv6     = ["::/0"]
+            }
+          ]
+          outbound_rules = [
+            {
+              label    = "allow-dns"
+              action   = "ACCEPT"
+              protocol = "UDP"
+              ports    = "53"
+              ipv4     = ["0.0.0.0/0"]
+              ipv6     = ["::/0"]
+            },
+            {
+              label    = "allow-dns-tcp"
+              action   = "ACCEPT"
+              protocol = "TCP"
+              ports    = "53"
+              ipv4     = ["0.0.0.0/0"]
+              ipv6     = ["::/0"]
+            },
+            {
+              label    = "allow-http-out"
+              action   = "ACCEPT"
+              protocol = "TCP"
+              ports    = "80"
+              ipv4     = ["0.0.0.0/0"]
+              ipv6     = ["::/0"]
+            },
+            {
+              label    = "allow-https-out"
+              action   = "ACCEPT"
+              protocol = "TCP"
+              ports    = "443"
+              ipv4     = ["0.0.0.0/0"]
+              ipv6     = ["::/0"]
+            },
+            {
+              label    = "allow-ntp"
+              action   = "ACCEPT"
+              protocol = "UDP"
+              ports    = "123"
+              ipv4     = ["0.0.0.0/0"]
+              ipv6     = ["::/0"]
+            }
+          ]
+          EOF
+
+      - name: Initialize Terraform
+        working-directory: ${{ inputs.terraform_dir }}
+        run: terraform init
+
+      - name: Apply Terraform Configuration
+        id: terraform-apply
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          terraform apply -auto-approve
+          echo "firewall_id=$(terraform output -raw firewall_id)" >> $GITHUB_OUTPUT
