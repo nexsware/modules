@@ -126,9 +126,9 @@ runs:
         # Setup auto-renewal
         systemctl enable certbot.timer || true
         systemctl start certbot.timer || true
+        ENDSSH
 
         echo "status=success" >> $GITHUB_OUTPUT
-        ENDSSH
 
     - name: Install Custom Certificate
       if: ${{ inputs.cert-method == 'custom' }}
@@ -185,9 +185,9 @@ runs:
 
           nginx -t && systemctl restart nginx
         fi
+        ENDSSH
 
         echo "status=success" >> $GITHUB_OUTPUT
-        ENDSSH
 
     - name: Set Output
       id: install-cert
