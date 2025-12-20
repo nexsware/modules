@@ -24,7 +24,7 @@ resource "linode_firewall" "main" {
       protocol = inbound.value.protocol
       ports    = inbound.value.ports
       ipv4     = inbound.value.ipv4
-      ipv6     = inbound.value.ipv6
+      ipv6     = length(inbound.value.ipv6) > 0 ? inbound.value.ipv6 : ["::1/128"]
     }
   }
 
@@ -37,7 +37,7 @@ resource "linode_firewall" "main" {
       protocol = outbound.value.protocol
       ports    = outbound.value.ports
       ipv4     = outbound.value.ipv4
-      ipv6     = outbound.value.ipv6
+      ipv6     = length(outbound.value.ipv6) > 0 ? outbound.value.ipv6 : ["::/0"]
     }
   }
 
