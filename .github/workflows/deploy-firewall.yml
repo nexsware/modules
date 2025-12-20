@@ -167,6 +167,13 @@ jobs:
           ]
           EOF
 
+      - name: Debug - Show Generated Terraform Variables
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          echo "=== Generated terraform.tfvars ==="
+          cat terraform.tfvars
+          echo "==================================="
+
       - name: Initialize Terraform
         working-directory: ${{ inputs.terraform_dir }}
         run: terraform init
