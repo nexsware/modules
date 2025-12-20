@@ -284,6 +284,7 @@ jobs:
           web-server: ${{ inputs.web_server }}
           cert-method: 'letsencrypt'
           ssh-user: ${{ inputs.ssh_user }}
+          backend-port: ${{ inputs.host_port }}
 
       - name: Verify SSL Certificate
         run: |
