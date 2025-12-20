@@ -24,7 +24,7 @@ variable "inbound_rules" {
     protocol = string
     ports    = string
     ipv4     = list(string)
-    ipv6     = list(string)
+    ipv6     = optional(list(string), ["::1/128"])
   }))
   default = []
 }
@@ -37,7 +37,7 @@ variable "outbound_rules" {
     protocol = string
     ports    = string
     ipv4     = list(string)
-    ipv6     = list(string)
+    ipv6     = optional(list(string), ["::/0"])
   }))
   default = []
 }
