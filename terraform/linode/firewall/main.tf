@@ -45,6 +45,6 @@ resource "linode_firewall" "main" {
   linodes = var.linodes
 
   # Defaults
-  inbound_policy  = "DROP"
-  outbound_policy = "DROP"
+  inbound_policy  = "ACCEPT"
+  outbound_policy = "ACCEPT"
 }
