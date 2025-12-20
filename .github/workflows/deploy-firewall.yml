@@ -84,6 +84,10 @@ jobs:
           done
           CIDRS_JSON+="]"
 
+          # IPv6 values
+          IPV6_LOCALHOST='["::1/128"]'
+          IPV6_ALL='["::/0"]'
+
           cat > terraform.tfvars <<EOF
           linode_token = "${{ secrets.LINODE_TOKEN }}"
           firewall_label = "${{ inputs.environment }}-${{ inputs.application_name }}-firewall"
@@ -96,7 +100,7 @@ jobs:
               protocol = "TCP"
               ports    = "22"
               ipv4     = ${CIDRS_JSON}
-              ipv6     = ["::1/128"]
+              ipv6     = ${IPV6_LOCALHOST}
             },
             {
               label    = "allow-http"
@@ -104,7 +108,7 @@ jobs:
               protocol = "TCP"
               ports    = "80"
               ipv4     = ["0.0.0.0/0"]
-              ipv6     = ["::/0"]
+              ipv6     = ${IPV6_ALL}
             },
             {
               label    = "allow-https"
@@ -112,7 +116,7 @@ jobs:
               protocol = "TCP"
               ports    = "443"
               ipv4     = ["0.0.0.0/0"]
-              ipv6     = ["::/0"]
+              ipv6     = ${IPV6_ALL}
             },
             {
               label    = "allow-spa"
@@ -120,7 +124,7 @@ jobs:
               protocol = "TCP"
               ports    = "3000"
               ipv4     = ["0.0.0.0/0"]
-              ipv6     = ["::/0"]
+              ipv6     = ${IPV6_ALL}
             }
           ]
           outbound_rules = [
