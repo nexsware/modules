@@ -338,6 +338,8 @@ jobs:
               ipv6     = ["::/0"]
             }
           ]
+          inbound_policy  = "ACCEPT"
+          outbound_policy = "ACCEPT"
           EOF
 
           echo "=== Generated terraform.tfvars ==="
