@@ -99,6 +99,10 @@ runs:
         ssh -i ~/.ssh/deploy_key ${{ inputs.ssh-user }}@${{ inputs.server-ip }} << 'ENDSSH'
         set -e
 
+        # Extract first line of image name (in case multiple tags were passed)
+        IMAGE_NAME=$(echo "${{ inputs.image-name }}" | head -n 1)
+        echo "Resolved image name: $IMAGE_NAME"
+
         # Login to container registry if credentials provided
         if [ -n "${{ inputs.registry-token }}" ]; then
           echo "${{ inputs.registry-token }}" | docker login ${{ inputs.registry }} \
@@ -106,8 +110,8 @@ runs:
         fi
 
         # Pull the latest image
-        echo "Pulling image: ${{ inputs.image-name }}"
-        docker pull ${{ inputs.image-name }}
+        echo "Pulling image: $IMAGE_NAME"
+        docker pull "$IMAGE_NAME"
 
         # Stop and remove existing container if it exists
         if [ "$(docker ps -aq -f name=${{ inputs.container-name }})" ]; then
@@ -135,7 +139,7 @@ runs:
           -p ${{ inputs.host-port }}:${{ inputs.container-port }} \
           $ENV_ARGS \
           ${{ inputs.additional-docker-args }} \
-          ${{ inputs.image-name }})
+          "$IMAGE_NAME")
 
         echo "Container ID: $CONTAINER_ID"
 
