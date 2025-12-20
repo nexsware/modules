@@ -96,7 +96,7 @@ jobs:
               protocol = "TCP"
               ports    = "22"
               ipv4     = ${CIDRS_JSON}
-              ipv6     = []
+              ipv6     = ["::1/128"]
             },
             {
               label    = "allow-http"
