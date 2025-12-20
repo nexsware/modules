@@ -41,8 +41,8 @@ inputs:
 
 outputs:
   image-name:
-    description: 'Full image name with tag'
-    value: ${{ steps.meta.outputs.tags }}
+    description: 'Full image name with tag (primary tag for deployment)'
+    value: ${{ steps.build-image-name.outputs.image }}
   image-digest:
     description: 'Image digest'
     value: ${{ steps.build-push.outputs.digest }}
@@ -91,6 +91,15 @@ runs:
           type=raw,value=${{ steps.generate-tag.outputs.tag }}
           type=raw,value=${{ inputs.environment }}
           type=raw,value=latest,enable=${{ inputs.environment == 'prod' }}
+
+    - name: Build Primary Image Name for Deployment
+      id: build-image-name
+      shell: bash
+      run: |
+        # Use the git SHA tag as the primary deployment tag
+        IMAGE_NAME="${{ inputs.registry }}/${{ steps.repo-owner.outputs.owner }}/${{ inputs.application-name }}:${{ steps.generate-tag.outputs.tag }}"
+        echo "image=$IMAGE_NAME" >> $GITHUB_OUTPUT
+        echo "Primary deployment image: $IMAGE_NAME"
 
     - name: Build and Push
       id: build-push
