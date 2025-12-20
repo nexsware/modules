@@ -60,7 +60,23 @@ jobs:
         run: |
           if [ -n "${{ inputs.allow_ssh_from }}" ]; then
             echo "Using provided CIDR ranges: ${{ inputs.allow_ssh_from }}"
-            echo "ssh_source=${{ inputs.allow_ssh_from }}" >> $GITHUB_OUTPUT
+            # Normalize IPs to include CIDR notation if missing
+            NORMALIZED=""
+            IFS=',' read -ra IPS <<< "${{ inputs.allow_ssh_from }}"
+            for ip in "${IPS[@]}"; do
+              # Check if IP already has CIDR notation (contains /)
+              if [[ ! "$ip" =~ / ]]; then
+                # Add /32 for single IP
+                ip="${ip}/32"
+              fi
+              if [ -z "$NORMALIZED" ]; then
+                NORMALIZED="$ip"
+              else
+                NORMALIZED="$NORMALIZED,$ip"
+              fi
+            done
+            echo "Normalized CIDR: $NORMALIZED"
+            echo "ssh_source=$NORMALIZED" >> $GITHUB_OUTPUT
           else
             echo "Fetching instance IP address from Linode API..."
             INSTANCE_IP=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
