@@ -61,8 +61,7 @@ variable "database_users" {
     password = string
     roles    = optional(list(string), [])
   }))
-  default   = {}
-  sensitive = true
+  default = {}
 }
 
 variable "databases" {
