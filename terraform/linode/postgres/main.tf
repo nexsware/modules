@@ -31,7 +31,6 @@ terraform {
 provider "linode" {
   # Token is passed via linode_token variable from workflow
   # For local testing, set via terraform.tfvars or LINODE_TOKEN environment variable
-  token = var.linode_token
 }
 
 provider "postgresql" {
