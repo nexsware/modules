@@ -246,14 +246,21 @@ jobs:
           update_day_of_week = ${{ inputs.update_day_of_week }}
           databases = ${{ steps.prepare-databases.outputs.databases_json }}
           database_users = ${{ steps.prepare-users.outputs.users_hcl }}
-          linode_token = "\${LINODE_TOKEN}"
+          linode_token = "${LINODE_TOKEN}"
           EOFMAIN
 
       - name: Debug - Show Generated Terraform Variables
         working-directory: ${{ inputs.terraform_dir }}
         run: |
+          echo "=== Current directory: $(pwd) ==="
+          echo "=== Files in directory: ==="
+          ls -la
           echo "=== Generated terraform.tfvars ==="
-          cat terraform.tfvars | sed 's/linode_token = .*/linode_token = "***REDACTED***"/'
+          if [ -f terraform.tfvars ]; then
+            cat terraform.tfvars | sed 's/linode_token = .*/linode_token = "***REDACTED***"/'
+          else
+            echo "ERROR: terraform.tfvars not found!"
+          fi
           echo "==================================="
 
       - name: Terraform Init
