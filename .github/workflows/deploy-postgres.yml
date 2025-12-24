@@ -1,0 +1,250 @@
+name: Provision PostgreSQL Database (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      region:
+        description: 'Linode Region'
+        required: true
+        type: string
+      database_type:
+        description: 'Linode Database Plan Type'
+        required: true
+        type: string
+      engine_id:
+        description: 'PostgreSQL Engine ID (e.g., postgresql/18, postgresql/16.3)'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment (e.g., test, prod)'
+        required: true
+        type: string
+      application_name:
+        description: 'Application Name'
+        required: false
+        type: string
+        default: ''
+      cluster_size:
+        description: 'Number of nodes in the database cluster'
+        required: false
+        type: number
+        default: 1
+      instance_id:
+        description: 'Linode Instance ID to allow database access (will fetch its IP)'
+        required: false
+        type: string
+        default: ''
+      allow_list:
+        description: 'Comma-separated list of IP addresses or CIDR blocks to allow access'
+        required: false
+        type: string
+        default: ''
+      ssl_connection:
+        description: 'Require SSL credentials for database connections'
+        required: false
+        type: boolean
+        default: true
+      encrypted:
+        description: 'Enable disk encryption for the database cluster'
+        required: false
+        type: boolean
+        default: true
+      update_frequency:
+        description: 'Maintenance window frequency (weekly, monthly)'
+        required: false
+        type: string
+        default: 'weekly'
+      update_duration:
+        description: 'Maintenance window duration in hours'
+        required: false
+        type: number
+        default: 4
+      update_hour_of_day:
+        description: 'Maintenance window hour of day (0-23)'
+        required: false
+        type: number
+        default: 22
+      update_day_of_week:
+        description: 'Maintenance window day of week (1=Monday, 7=Sunday)'
+        required: false
+        type: number
+        default: 2
+      terraform_dir:
+        description: 'Directory containing Terraform configuration'
+        required: false
+        type: string
+        default: 'modules/terraform/linode/postgres'
+    secrets:
+      LINODE_TOKEN:
+        description: 'Linode API Token'
+        required: true
+      DB_ROOT_PASSWORD:
+        description: 'Root Password for PostgreSQL Database'
+        required: true
+    outputs:
+      database_id:
+        description: 'The ID of the created database cluster'
+        value: ${{ jobs.provision-postgres.outputs.database_id }}
+      database_host:
+        description: 'The host/endpoint of the database'
+        value: ${{ jobs.provision-postgres.outputs.database_host }}
+      database_port:
+        description: 'The port of the database'
+        value: ${{ jobs.provision-postgres.outputs.database_port }}
+      connection_string:
+        description: 'The connection string for the database (without password)'
+        value: ${{ jobs.provision-postgres.outputs.connection_string }}
+      root_username:
+        description: 'The root username for the database'
+        value: ${{ jobs.provision-postgres.outputs.root_username }}
+
+jobs:
+  provision-postgres:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.environment != 'prod' || github.ref == 'refs/heads/main' }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      database_id: ${{ steps.terraform-apply.outputs.database_id }}
+      database_host: ${{ steps.terraform-apply.outputs.database_host }}
+      database_port: ${{ steps.terraform-apply.outputs.database_port }}
+      connection_string: ${{ steps.terraform-apply.outputs.connection_string }}
+      root_username: ${{ steps.terraform-apply.outputs.root_username }}
+    steps:
+      - name: Checkout Terraform Modules
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: '1.6.0'
+          terraform_wrapper: false
+
+      - name: Get Instance IP (if instance_id provided)
+        id: get-instance-ip
+        run: |
+          if [ -n "${{ inputs.instance_id }}" ]; then
+            echo "Fetching IP address for instance ID: ${{ inputs.instance_id }}"
+            INSTANCE_IP=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+              "https://api.linode.com/v4/linode/instances/${{ inputs.instance_id }}" | \
+              jq -r '.ipv4[0]')
+            echo "Instance IP: $INSTANCE_IP"
+            echo "instance_ip=${INSTANCE_IP}" >> $GITHUB_OUTPUT
+          else
+            echo "No instance_id provided"
+            echo "instance_ip=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare Allow List
+        id: prepare-allow-list
+        run: |
+          COMBINED_IPS=""
+
+          # Add instance IP if available
+          if [ -n "${{ steps.get-instance-ip.outputs.instance_ip }}" ]; then
+            COMBINED_IPS="${{ steps.get-instance-ip.outputs.instance_ip }}/32"
+          fi
+
+          # Add custom allow_list IPs
+          if [ -n "${{ inputs.allow_list }}" ]; then
+            if [ -n "$COMBINED_IPS" ]; then
+              COMBINED_IPS="${COMBINED_IPS},${{ inputs.allow_list }}"
+            else
+              COMBINED_IPS="${{ inputs.allow_list }}"
+            fi
+          fi
+
+          # Convert to JSON array
+          if [ -z "$COMBINED_IPS" ]; then
+            echo "allow_list_json=[]" >> $GITHUB_OUTPUT
+          else
+            IFS=',' read -ra IPS <<< "$COMBINED_IPS"
+            ALLOW_LIST_JSON="["
+            for i in "${!IPS[@]}"; do
+              # Trim whitespace
+              IP=$(echo "${IPS[$i]}" | xargs)
+              # Add /32 if no CIDR notation
+              if [[ ! "$IP" =~ / ]]; then
+                IP="${IP}/32"
+              fi
+              ALLOW_LIST_JSON+="\"${IP}\""
+              if [ $i -lt $(( ${#IPS[@]} - 1 )) ]; then
+                ALLOW_LIST_JSON+=","
+              fi
+            done
+            ALLOW_LIST_JSON+="]"
+            echo "allow_list_json=$ALLOW_LIST_JSON" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Terraform Variables File
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          cat > terraform.tfvars <<EOF
+          label = "${{ inputs.environment }}-${{ inputs.application_name }}-postgres"
+          engine_id = "${{ inputs.engine_id }}"
+          region = "${{ inputs.region }}"
+          type = "${{ inputs.database_type }}"
+          root_password = "${{ secrets.DB_ROOT_PASSWORD }}"
+          allow_list = ${{ steps.prepare-allow-list.outputs.allow_list_json }}
+          cluster_size = ${{ inputs.cluster_size }}
+          ssl_connection = ${{ inputs.ssl_connection }}
+          encrypted = ${{ inputs.encrypted }}
+          update_duration = ${{ inputs.update_duration }}
+          update_frequency = "${{ inputs.update_frequency }}"
+          update_hour_of_day = ${{ inputs.update_hour_of_day }}
+          update_day_of_week = ${{ inputs.update_day_of_week }}
+          EOF
+
+      - name: Debug - Show Generated Terraform Variables
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          echo "=== Generated terraform.tfvars ==="
+          cat terraform.tfvars
+          echo "==================================="
+
+      - name: Terraform Init
+        working-directory: ${{ inputs.terraform_dir }}
+        run: terraform init
+
+      - name: Terraform Apply
+        id: terraform-apply
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          terraform apply -auto-approve
+          echo "database_id=$(terraform output -raw database_id)" >> $GITHUB_OUTPUT
+          echo "database_host=$(terraform output -raw database_host)" >> $GITHUB_OUTPUT
+          echo "database_port=$(terraform output -raw database_port)" >> $GITHUB_OUTPUT
+          echo "connection_string=$(terraform output -raw connection_string)" >> $GITHUB_OUTPUT
+          echo "root_username=$(terraform output -raw root_username)" >> $GITHUB_OUTPUT
+
+      - name: Wait for Database to be Ready
+        run: |
+          echo "Waiting for database to be active..."
+          DATABASE_ID="${{ steps.terraform-apply.outputs.database_id }}"
+          for i in {1..60}; do
+            STATUS=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+              "https://api.linode.com/v4/databases/postgresql/instances/${DATABASE_ID}" | \
+              jq -r '.status')
+            echo "Database status: $STATUS (attempt $i/60)"
+            if [ "$STATUS" == "active" ]; then
+              echo "Database is active and ready!"
+              break
+            fi
+            if [ "$STATUS" == "failed" ]; then
+              echo "Database provisioning failed!"
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Display Database Connection Info
+        run: |
+          echo "=== PostgreSQL Database Provisioned ==="
+          echo "Database ID: ${{ steps.terraform-apply.outputs.database_id }}"
+          echo "Host: ${{ steps.terraform-apply.outputs.database_host }}"
+          echo "Port: ${{ steps.terraform-apply.outputs.database_port }}"
+          echo "Username: ${{ steps.terraform-apply.outputs.root_username }}"
+          echo "Connection String: ${{ steps.terraform-apply.outputs.connection_string }}"
+          echo "======================================="
