@@ -28,11 +28,6 @@ terraform {
   }
 }
 
-provider "linode" {
-  # Token is passed via linode_token variable from workflow
-  # For local testing, set via terraform.tfvars or LINODE_TOKEN environment variable
-}
-
 provider "postgresql" {
   host            = linode_database_postgresql_v2.foobar.host_primary
   port            = linode_database_postgresql_v2.foobar.port
