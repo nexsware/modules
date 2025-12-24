@@ -230,8 +230,10 @@ jobs:
 
       - name: Create Terraform Variables File
         working-directory: ${{ inputs.terraform_dir }}
+        env:
+          LINODE_TOKEN: ${{ secrets.LINODE_TOKEN }}
         run: |
-          cat > terraform.tfvars <<'EOFMAIN'
+          cat > terraform.tfvars <<EOFMAIN
           label = "${{ inputs.environment }}-${{ inputs.application_name }}-postgres"
           engine_id = "${{ inputs.engine_id }}"
           region = "${{ inputs.region }}"
@@ -244,14 +246,14 @@ jobs:
           update_day_of_week = ${{ inputs.update_day_of_week }}
           databases = ${{ steps.prepare-databases.outputs.databases_json }}
           database_users = ${{ steps.prepare-users.outputs.users_hcl }}
-          linode_token = "${{ secrets.LINODE_TOKEN }}"
+          linode_token = "\${LINODE_TOKEN}"
           EOFMAIN
 
       - name: Debug - Show Generated Terraform Variables
         working-directory: ${{ inputs.terraform_dir }}
         run: |
           echo "=== Generated terraform.tfvars ==="
-          cat terraform.tfvars
+          cat terraform.tfvars | sed 's/linode_token = .*/linode_token = "***REDACTED***"/'
           echo "==================================="
 
       - name: Terraform Init

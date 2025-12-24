@@ -29,9 +29,9 @@ terraform {
 }
 
 provider "linode" {
-  # Token can be set via LINODE_TOKEN environment variable
-  # or passed explicitly via linode_token variable
-  token = var.linode_token != "" ? var.linode_token : null
+  # Token is passed via linode_token variable from workflow
+  # For local testing, set via terraform.tfvars or LINODE_TOKEN environment variable
+  token = var.linode_token
 }
 
 provider "postgresql" {
