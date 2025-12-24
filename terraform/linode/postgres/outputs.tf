@@ -30,7 +30,7 @@ output "database_status" {
 
 output "database_host" {
   description = "The primary host/endpoint for the PostgreSQL database."
-  value       = linode_database_postgresql_v2.foobar.host_primary
+  value       = linode_database_postgresql_v2.foobar.host
 }
 
 output "database_port" {
@@ -50,29 +50,7 @@ output "database_allow_list" {
 
 output "connection_string" {
   description = "The connection string for the PostgreSQL database (without password)."
-  value       = "postgresql://${linode_database_postgresql_v2.foobar.host_primary}:${linode_database_postgresql_v2.foobar.port}"
+  value       = "postgresql://${linode_database_postgresql_v2.foobar.host}:${linode_database_postgresql_v2.foobar.port}"
 }
 
-output "root_username" {
-  description = "The root username for the PostgreSQL database."
-  value       = linode_database_postgresql_v2.foobar.root_username
-  sensitive   = true
-}
-
-output "root_password" {
-  value       = linode_database_postgresql_v2.foobar.root_password
-  description = "The root password for the PostgreSQL database."
-  sensitive   = true
-}
-
-output "created_databases" {
-  description = "List of additional databases created."
-  value       = keys(postgresql_database.databases)
-}
-
-output "created_users" {
-  description = "List of additional database users created."
-  value       = keys(postgresql_role.users)
-  sensitive   = true
-}
 
