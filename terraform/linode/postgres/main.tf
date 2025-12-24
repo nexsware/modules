@@ -3,11 +3,8 @@ resource "linode_database_postgresql_v2" "foobar" {
   engine_id = var.engine_id
   region = var.region
   type = var.type
-  root_password = var.root_password
   allow_list = var.allow_list
   cluster_size = var.cluster_size
-  ssl_connection = var.ssl_connection
-  encrypted = var.encrypted
 
   updates = {
     duration = var.update_duration
@@ -35,8 +32,8 @@ provider "postgresql" {
   host            = linode_database_postgresql_v2.foobar.host
   port            = linode_database_postgresql_v2.foobar.port
   username        = linode_database_postgresql_v2.foobar.root_username
-  password        = var.root_password
-  sslmode         = var.ssl_connection ? "require" : "disable"
+  password        = linode_database_postgresql_v2.foobar.root_password
+  sslmode         = "require"  # Linode managed databases always use SSL
   superuser       = false
   connect_timeout = 15
 }

@@ -55,24 +55,6 @@ variable "update_day_of_week" {
   default     = 2
 }
 
-variable "root_password" {
-  description = "The root password for the PostgreSQL database."
-  type        = string
-  sensitive   = true
-}
-
-variable "ssl_connection" {
-  description = "Require SSL credentials to establish a connection to the database."
-  type        = bool
-  default     = true
-}
-
-variable "encrypted" {
-  description = "Enable disk encryption for the database cluster."
-  type        = bool
-  default     = true
-}
-
 variable "database_users" {
   description = "Map of additional database users to create. Each user should have 'password' and optional 'roles' list."
   type = map(object({
