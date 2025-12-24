@@ -56,6 +56,7 @@ output "connection_string" {
 output "root_username" {
   description = "The root username for the PostgreSQL database."
   value       = linode_database_postgresql_v2.foobar.root_username
+  sensitive   = true
 }
 
 output "root_password" {
