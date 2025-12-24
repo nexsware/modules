@@ -28,6 +28,12 @@ terraform {
   }
 }
 
+provider "linode" {
+  # Token can be set via LINODE_TOKEN environment variable
+  # or passed explicitly via token parameter
+  token = var.linode_token
+}
+
 provider "postgresql" {
   host            = linode_database_postgresql_v2.foobar.host_primary
   port            = linode_database_postgresql_v2.foobar.port

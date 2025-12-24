@@ -244,6 +244,7 @@ jobs:
           update_day_of_week = ${{ inputs.update_day_of_week }}
           databases = ${{ steps.prepare-databases.outputs.databases_json }}
           database_users = ${{ steps.prepare-users.outputs.users_hcl }}
+          linode_token = "${{ secrets.LINODE_TOKEN }}"
           EOFMAIN
 
       - name: Debug - Show Generated Terraform Variables

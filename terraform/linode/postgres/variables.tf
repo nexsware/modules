@@ -69,3 +69,9 @@ variable "databases" {
   type        = list(string)
   default     = []
 }
+
+variable "linode_token" {
+  description = "The Linode API token."
+  type        = string
+  sensitive   = true
+}
