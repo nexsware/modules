@@ -39,16 +39,6 @@ on:
         required: false
         type: string
         default: ''
-      ssl_connection:
-        description: 'Require SSL credentials for database connections'
-        required: false
-        type: boolean
-        default: true
-      encrypted:
-        description: 'Enable disk encryption for the database cluster'
-        required: false
-        type: boolean
-        default: true
       databases:
         description: 'Comma-separated list of additional databases to create'
         required: false
@@ -87,9 +77,6 @@ on:
     secrets:
       LINODE_TOKEN:
         description: 'Linode API Token'
-        required: true
-      DB_ROOT_PASSWORD:
-        description: 'Root Password for PostgreSQL Database'
         required: true
       SERVICE_ACCOUNT:
         description: 'Service account username (overrides service_account_username input if provided)'
@@ -249,11 +236,8 @@ jobs:
           engine_id = "${{ inputs.engine_id }}"
           region = "${{ inputs.region }}"
           type = "${{ inputs.database_type }}"
-          root_password = "${{ secrets.DB_ROOT_PASSWORD }}"
           allow_list = ${{ steps.prepare-allow-list.outputs.allow_list_json }}
           cluster_size = ${{ inputs.cluster_size }}
-          ssl_connection = ${{ inputs.ssl_connection }}
-          encrypted = ${{ inputs.encrypted }}
           update_duration = ${{ inputs.update_duration }}
           update_frequency = "${{ inputs.update_frequency }}"
           update_hour_of_day = ${{ inputs.update_hour_of_day }}
