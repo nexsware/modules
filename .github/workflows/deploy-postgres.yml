@@ -91,6 +91,9 @@ on:
       DB_ROOT_PASSWORD:
         description: 'Root Password for PostgreSQL Database'
         required: true
+      SERVICE_ACCOUNT:
+        description: 'Service account username (overrides service_account_username input if provided)'
+        required: false
       SERVICE_ACCOUNT_PASSWORD:
         description: 'Password for the service account user'
         required: false
@@ -216,10 +219,17 @@ jobs:
         run: |
           # Create service account user if password is provided
           if [ -n "${{ secrets.SERVICE_ACCOUNT_PASSWORD }}" ]; then
+            # Use SERVICE_ACCOUNT secret if provided, otherwise use input
+            if [ -n "${{ secrets.SERVICE_ACCOUNT }}" ]; then
+              USERNAME="${{ secrets.SERVICE_ACCOUNT }}"
+            else
+              USERNAME="${{ inputs.service_account_username }}"
+            fi
+
             # Create HCL map for service account
             cat > users.hcl <<EOF
           {
-            "${{ inputs.service_account_username }}" = {
+            "${USERNAME}" = {
               password = "${{ secrets.SERVICE_ACCOUNT_PASSWORD }}"
               roles    = []
             }
