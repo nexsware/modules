@@ -30,8 +30,8 @@ terraform {
 
 provider "linode" {
   # Token can be set via LINODE_TOKEN environment variable
-  # or passed explicitly via token parameter
-  token = var.linode_token
+  # or passed explicitly via linode_token variable
+  token = var.linode_token != "" ? var.linode_token : null
 }
 
 provider "postgresql" {

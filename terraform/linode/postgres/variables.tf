@@ -71,7 +71,8 @@ variable "databases" {
 }
 
 variable "linode_token" {
-  description = "The Linode API token."
+  description = "The Linode API token. Can also be set via LINODE_TOKEN environment variable."
   type        = string
   sensitive   = true
+  default     = ""
 }
