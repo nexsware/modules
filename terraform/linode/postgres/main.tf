@@ -1,14 +1,14 @@
 resource "linode_database_postgresql_v2" "foobar" {
-  label = var.label
-  engine_id = var.engine_id
-  region = var.region
-  type = var.type
-  allow_list = var.allow_list
+  label        = var.label
+  engine_id    = var.engine_id
+  region       = var.region
+  type         = var.type
+  allow_list   = var.allow_list
   cluster_size = var.cluster_size
 
   updates = {
-    duration = var.update_duration
-    frequency = var.update_frequency
+    duration    = var.update_duration
+    frequency   = var.update_frequency
     hour_of_day = var.update_hour_of_day
     day_of_week = var.update_day_of_week
   }
@@ -29,11 +29,11 @@ terraform {
 }
 
 provider "postgresql" {
-  host            = linode_database_postgresql_v2.foobar.host
+  host            = linode_database_postgresql_v2.foobar.host_primary
   port            = linode_database_postgresql_v2.foobar.port
   username        = linode_database_postgresql_v2.foobar.root_username
   password        = linode_database_postgresql_v2.foobar.root_password
-  sslmode         = "require"  # Linode managed databases always use SSL
+  sslmode         = "require" # Linode managed databases always use SSL
   superuser       = false
   connect_timeout = 15
 }
