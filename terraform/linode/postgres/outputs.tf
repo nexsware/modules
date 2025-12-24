@@ -64,3 +64,14 @@ output "root_password" {
     sensitive   = true
 }
 
+output "created_databases" {
+  description = "List of additional databases created."
+  value       = keys(postgresql_database.databases)
+}
+
+output "created_users" {
+  description = "List of additional database users created."
+  value       = keys(postgresql_role.users)
+  sensitive   = true
+}
+

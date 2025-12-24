@@ -49,6 +49,16 @@ on:
         required: false
         type: boolean
         default: true
+      databases:
+        description: 'Comma-separated list of additional databases to create'
+        required: false
+        type: string
+        default: ''
+      service_account_username:
+        description: 'Service account username to create'
+        required: false
+        type: string
+        default: 'srv_account'
       update_frequency:
         description: 'Maintenance window frequency (weekly, monthly)'
         required: false
@@ -81,6 +91,9 @@ on:
       DB_ROOT_PASSWORD:
         description: 'Root Password for PostgreSQL Database'
         required: true
+      SERVICE_ACCOUNT_PASSWORD:
+        description: 'Password for the service account user'
+        required: false
     outputs:
       database_id:
         description: 'The ID of the created database cluster'
@@ -178,10 +191,50 @@ jobs:
             echo "allow_list_json=$ALLOW_LIST_JSON" >> $GITHUB_OUTPUT
           fi
 
+      - name: Prepare Databases List
+        id: prepare-databases
+        run: |
+          if [ -z "${{ inputs.databases }}" ]; then
+            echo "databases_json=[]" >> $GITHUB_OUTPUT
+          else
+            # Convert comma-separated databases to JSON array
+            IFS=',' read -ra DBS <<< "${{ inputs.databases }}"
+            DATABASES_JSON="["
+            for i in "${!DBS[@]}"; do
+              DB=$(echo "${DBS[$i]}" | xargs)
+              DATABASES_JSON+="\"${DB}\""
+              if [ $i -lt $(( ${#DBS[@]} - 1 )) ]; then
+                DATABASES_JSON+=","
+              fi
+            done
+            DATABASES_JSON+="]"
+            echo "databases_json=$DATABASES_JSON" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare Database Users
+        id: prepare-users
+        run: |
+          # Create service account user if password is provided
+          if [ -n "${{ secrets.SERVICE_ACCOUNT_PASSWORD }}" ]; then
+            # Create HCL map for service account
+            cat > users.hcl <<EOF
+          {
+            "${{ inputs.service_account_username }}" = {
+              password = "${{ secrets.SERVICE_ACCOUNT_PASSWORD }}"
+              roles    = []
+            }
+          }
+          EOF
+            echo "users_hcl=$(cat users.hcl)" >> $GITHUB_OUTPUT
+            rm users.hcl
+          else
+            echo "users_hcl={}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Terraform Variables File
         working-directory: ${{ inputs.terraform_dir }}
         run: |
-          cat > terraform.tfvars <<EOF
+          cat > terraform.tfvars <<'EOFMAIN'
           label = "${{ inputs.environment }}-${{ inputs.application_name }}-postgres"
           engine_id = "${{ inputs.engine_id }}"
           region = "${{ inputs.region }}"
@@ -195,7 +248,9 @@ jobs:
           update_frequency = "${{ inputs.update_frequency }}"
           update_hour_of_day = ${{ inputs.update_hour_of_day }}
           update_day_of_week = ${{ inputs.update_day_of_week }}
-          EOF
+          databases = ${{ steps.prepare-databases.outputs.databases_json }}
+          database_users = ${{ steps.prepare-users.outputs.users_hcl }}
+          EOFMAIN
 
       - name: Debug - Show Generated Terraform Variables
         working-directory: ${{ inputs.terraform_dir }}

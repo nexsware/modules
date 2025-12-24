@@ -72,3 +72,19 @@ variable "encrypted" {
   type        = bool
   default     = true
 }
+
+variable "database_users" {
+  description = "Map of additional database users to create. Each user should have 'password' and optional 'roles' list."
+  type = map(object({
+    password = string
+    roles    = optional(list(string), [])
+  }))
+  default   = {}
+  sensitive = true
+}
+
+variable "databases" {
+  description = "List of additional databases to create (besides the default 'postgres' database)."
+  type        = list(string)
+  default     = []
+}
