@@ -20,6 +20,10 @@ resource "linode_database_postgresql_v2" "foobar" {
 # PostgreSQL provider for managing users and databases
 terraform {
   required_providers {
+    linode = {
+      source  = "linode/linode"
+      version = ">= 2.0.0"
+    }
     postgresql = {
       source  = "cyrilgdn/postgresql"
       version = "~> 1.22"
