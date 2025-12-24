@@ -1,3 +1,7 @@
+provider "linode" {
+  token = var.linode_token
+}
+
 resource "linode_database_postgresql_v2" "foobar" {
   label        = var.label
   engine_id    = var.engine_id
