@@ -373,6 +373,23 @@ jobs:
             echo "✓ Port is reachable!" || \
             echo "✗ Warning: Port may not be reachable yet"
 
+      - name: Update Terraform Variables with Runner IP
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          RUNNER_IP="${{ steps.runner-ip.outputs.runner_ip }}"
+
+          # Get current allow_list from tfvars and add runner IP
+          CURRENT_ALLOW_LIST=$(grep "allow_list" terraform.tfvars | cut -d'=' -f2 | tr -d ' ')
+
+          # Add runner IP to the allow list in tfvars
+          NEW_ALLOW_LIST=$(echo "$CURRENT_ALLOW_LIST" | jq ". + [\"${RUNNER_IP}/32\"]")
+
+          # Update tfvars with new allow list including runner IP
+          sed -i "s|allow_list = .*|allow_list = $NEW_ALLOW_LIST|" terraform.tfvars
+
+          echo "Updated terraform.tfvars with runner IP in allow_list"
+          cat terraform.tfvars
+
       - name: Terraform Apply - Create Databases and Users
         working-directory: ${{ inputs.terraform_dir }}
         run: |
