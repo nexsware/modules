@@ -276,6 +276,38 @@ jobs:
           echo "connection_string=$(terraform output -raw connection_string)" >> $GITHUB_OUTPUT
           echo "root_username=$(terraform output -raw root_username)" >> $GITHUB_OUTPUT
 
+      - name: Get GitHub Runner IP
+        id: runner-ip
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
+          echo "GitHub Actions Runner IP: $RUNNER_IP"
+
+      - name: Add Runner IP to Database Allow List
+        run: |
+          DATABASE_ID="${{ steps.terraform-apply.outputs.database_id }}"
+          RUNNER_IP="${{ steps.runner-ip.outputs.runner_ip }}"
+
+          echo "Adding GitHub Runner IP ($RUNNER_IP) to database allow list..."
+
+          # Get current allow list
+          CURRENT_ALLOW_LIST=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+            "https://api.linode.com/v4/databases/postgresql/instances/${DATABASE_ID}" | \
+            jq -r '.allow_list | join(",")')
+
+          # Add runner IP to allow list
+          NEW_ALLOW_LIST="${CURRENT_ALLOW_LIST},${RUNNER_IP}/32"
+
+          # Update database allow list
+          curl -X PUT \
+            -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"allow_list\": [$(echo $NEW_ALLOW_LIST | sed 's/,/","/g' | sed 's/^/"/;s/$/"/'))]}" \
+            "https://api.linode.com/v4/databases/postgresql/instances/${DATABASE_ID}"
+
+          echo "Runner IP added to allow list. Waiting for firewall to update..."
+          sleep 30
+
       - name: Wait for Database to be Ready
         run: |
           echo "Waiting for database to be active..."
@@ -305,3 +337,25 @@ jobs:
           echo "Username: ${{ steps.terraform-apply.outputs.root_username }}"
           echo "Connection String: ${{ steps.terraform-apply.outputs.connection_string }}"
           echo "======================================="
+
+      - name: Remove Runner IP from Database Allow List
+        if: always()
+        run: |
+          DATABASE_ID="${{ steps.terraform-apply.outputs.database_id }}"
+          RUNNER_IP="${{ steps.runner-ip.outputs.runner_ip }}"
+
+          echo "Removing GitHub Runner IP ($RUNNER_IP) from database allow list for security..."
+
+          # Get current allow list
+          CURRENT_ALLOW_LIST=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+            "https://api.linode.com/v4/databases/postgresql/instances/${DATABASE_ID}" | \
+            jq -r '.allow_list[]' | grep -v "${RUNNER_IP}/32" | jq -R . | jq -s .)
+
+          # Update database allow list (remove runner IP)
+          curl -X PUT \
+            -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"allow_list\": $CURRENT_ALLOW_LIST}" \
+            "https://api.linode.com/v4/databases/postgresql/instances/${DATABASE_ID}"
+
+          echo "Runner IP removed from allow list."
