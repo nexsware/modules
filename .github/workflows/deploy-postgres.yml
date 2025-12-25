@@ -295,20 +295,33 @@ jobs:
           # Get current allow list
           CURRENT_ALLOW_LIST=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
             "https://api.linode.com/v4/databases/postgresql/instances/${DATABASE_ID}" | \
-            jq -r '.allow_list | join(",")')
+            jq -r '.allow_list')
 
-          # Add runner IP to allow list
-          NEW_ALLOW_LIST="${CURRENT_ALLOW_LIST},${RUNNER_IP}/32"
+          echo "Current allow list: $CURRENT_ALLOW_LIST"
+
+          # Create new allow list with runner IP
+          NEW_ALLOW_LIST=$(echo "$CURRENT_ALLOW_LIST" | jq ". + [\"${RUNNER_IP}/32\"]")
+
+          echo "New allow list: $NEW_ALLOW_LIST"
 
           # Update database allow list
-          curl -X PUT \
+          RESPONSE=$(curl -s -X PUT \
             -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -d "{\"allow_list\": [$(echo $NEW_ALLOW_LIST | sed 's/,/","/g' | sed 's/^/"/;s/$/"/'))]}" \
-            "https://api.linode.com/v4/databases/postgresql/instances/${DATABASE_ID}"
+            -d "{\"allow_list\": $NEW_ALLOW_LIST}" \
+            "https://api.linode.com/v4/databases/postgresql/instances/${DATABASE_ID}")
 
-          echo "Runner IP added to allow list. Waiting for firewall to update..."
-          sleep 30
+          echo "API Response: $RESPONSE"
+
+          # Verify the IP was added
+          UPDATED_ALLOW_LIST=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+            "https://api.linode.com/v4/databases/postgresql/instances/${DATABASE_ID}" | \
+            jq -r '.allow_list')
+
+          echo "Verified allow list: $UPDATED_ALLOW_LIST"
+
+          echo "Runner IP added to allow list. Waiting 60 seconds for firewall to update..."
+          sleep 60
 
       - name: Wait for DNS Propagation
         run: |
@@ -347,6 +360,18 @@ jobs:
             fi
             sleep 10
           done
+
+      - name: Test Database Connectivity
+        run: |
+          DATABASE_HOST="${{ steps.terraform-apply.outputs.database_host }}"
+          DATABASE_PORT="${{ steps.terraform-apply.outputs.database_port }}"
+
+          echo "Testing connectivity to $DATABASE_HOST:$DATABASE_PORT..."
+
+          # Test if port is reachable
+          timeout 10 bash -c "cat < /dev/null > /dev/tcp/$DATABASE_HOST/$DATABASE_PORT" && \
+            echo "✓ Port is reachable!" || \
+            echo "✗ Warning: Port may not be reachable yet"
 
       - name: Terraform Apply - Create Databases and Users
         working-directory: ${{ inputs.terraform_dir }}
