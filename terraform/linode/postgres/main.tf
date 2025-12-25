@@ -44,7 +44,7 @@ provider "postgresql" {
 
 # Create additional databases
 resource "postgresql_database" "databases" {
-  for_each = toset(var.databases)
+  for_each = var.create_resources ? toset(var.databases) : toset([])
 
   name              = each.value
   owner             = linode_database_postgresql_v2.foobar.root_username
@@ -54,7 +54,7 @@ resource "postgresql_database" "databases" {
 
 # Create additional database users
 resource "postgresql_role" "users" {
-  for_each = var.database_users
+  for_each = var.create_resources ? var.database_users : {}
 
   name     = each.key
   login    = true

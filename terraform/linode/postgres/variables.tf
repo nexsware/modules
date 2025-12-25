@@ -75,3 +75,9 @@ variable "linode_token" {
   description = "The API token for Linode"
   sensitive   = true
 }
+
+variable "create_resources" {
+  type        = bool
+  description = "Whether to create databases and users (set to false for initial database creation)"
+  default     = true
+}

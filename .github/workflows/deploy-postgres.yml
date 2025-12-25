@@ -245,6 +245,7 @@ jobs:
           databases = ${{ steps.prepare-databases.outputs.databases_json }}
           database_users = ${{ steps.prepare-users.outputs.users_hcl }}
           linode_token = "${{ secrets.LINODE_TOKEN }}"
+          create_resources = false
           EOFMAIN
 
       - name: Debug - Show Generated Terraform Variables
@@ -265,11 +266,12 @@ jobs:
         working-directory: ${{ inputs.terraform_dir }}
         run: terraform init
 
-      - name: Terraform Apply
+      - name: Terraform Apply - Create Database Only
         id: terraform-apply
         working-directory: ${{ inputs.terraform_dir }}
         run: |
-          terraform apply -auto-approve
+          # First apply: create managed database only (skip resources that need connectivity)
+          terraform apply -auto-approve -var="create_resources=false"
           echo "database_id=$(terraform output -raw database_id)" >> $GITHUB_OUTPUT
           echo "database_host=$(terraform output -raw database_host)" >> $GITHUB_OUTPUT
           echo "database_port=$(terraform output -raw database_port)" >> $GITHUB_OUTPUT
@@ -345,6 +347,13 @@ jobs:
             fi
             sleep 10
           done
+
+      - name: Terraform Apply - Create Databases and Users
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          echo "Creating databases and users now that runner IP is whitelisted..."
+          # Second apply: create databases and users with create_resources=true
+          terraform apply -auto-approve -var="create_resources=true"
 
       - name: Display Database Connection Info
         run: |
