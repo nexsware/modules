@@ -146,3 +146,35 @@ jobs:
           ENDSSH
 
           echo "SSH key verification complete"
+
+      - name: Run System Updates
+        if: success()
+        run: |
+          IP_ADDRESS=$(terraform -chdir=terraform/linode/instance output -raw ip_address)
+
+          echo "Running system updates on instance..."
+
+          sshpass -p "${{ secrets.ROOT_PASS }}" ssh -o StrictHostKeyChecking=no root@$IP_ADDRESS << 'ENDSSH'
+          echo "=== Starting System Updates ==="
+
+          # Update package lists
+          apt-get update
+
+          # Upgrade all packages (non-interactive)
+          DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+
+          # Upgrade distribution packages if available
+          DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y
+
+          # Remove unnecessary packages
+          apt-get autoremove -y
+
+          # Clean up package cache
+          apt-get clean
+
+          echo "=== System Updates Complete ==="
+          echo "Installed kernel version: $(uname -r)"
+          echo "Reboot required: $([ -f /var/run/reboot-required ] && echo 'YES' || echo 'NO')"
+          ENDSSH
+
+          echo "System updates completed successfully"
