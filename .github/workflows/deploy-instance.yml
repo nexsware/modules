@@ -150,9 +150,9 @@ jobs:
       - name: Run System Updates
         if: success()
         run: |
-          IP_ADDRESS=$(terraform -chdir=terraform/linode/instance output -raw ip_address)
+          IP_ADDRESS="${{ steps.terraform-apply.outputs.ip_address }}"
 
-          echo "Running system updates on instance..."
+          echo "Running system updates on instance at $IP_ADDRESS..."
 
           sshpass -p "${{ secrets.ROOT_PASS }}" ssh -o StrictHostKeyChecking=no root@$IP_ADDRESS << 'ENDSSH'
           echo "=== Starting System Updates ==="
