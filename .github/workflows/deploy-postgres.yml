@@ -378,16 +378,20 @@ jobs:
         run: |
           RUNNER_IP="${{ steps.runner-ip.outputs.runner_ip }}"
 
+          echo "Adding runner IP ($RUNNER_IP) to terraform.tfvars..."
+
           # Get current allow_list from tfvars and add runner IP
           CURRENT_ALLOW_LIST=$(grep "allow_list" terraform.tfvars | cut -d'=' -f2 | tr -d ' ')
 
-          # Add runner IP to the allow list in tfvars
-          NEW_ALLOW_LIST=$(echo "$CURRENT_ALLOW_LIST" | jq ". + [\"${RUNNER_IP}/32\"]")
+          # Add runner IP to the allow list
+          NEW_ALLOW_LIST=$(echo "$CURRENT_ALLOW_LIST" | jq -c ". + [\"${RUNNER_IP}/32\"]")
 
-          # Update tfvars with new allow list including runner IP
-          sed -i "s|allow_list = .*|allow_list = $NEW_ALLOW_LIST|" terraform.tfvars
+          # Create new tfvars with updated allow_list
+          grep -v "^allow_list" terraform.tfvars > terraform.tfvars.tmp
+          echo "allow_list = $NEW_ALLOW_LIST" >> terraform.tfvars.tmp
+          mv terraform.tfvars.tmp terraform.tfvars
 
-          echo "Updated terraform.tfvars with runner IP in allow_list"
+          echo "Updated terraform.tfvars with runner IP in allow_list:"
           cat terraform.tfvars
 
       - name: Terraform Apply - Create Databases and Users
