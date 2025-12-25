@@ -308,6 +308,24 @@ jobs:
           echo "Runner IP added to allow list. Waiting for firewall to update..."
           sleep 30
 
+      - name: Wait for DNS Propagation
+        run: |
+          DATABASE_HOST="${{ steps.terraform-apply.outputs.database_host }}"
+
+          echo "Waiting for DNS propagation for $DATABASE_HOST..."
+
+          for i in {1..30}; do
+            if nslookup "$DATABASE_HOST" > /dev/null 2>&1; then
+              echo "DNS resolved successfully!"
+              break
+            fi
+            echo "DNS not yet resolved (attempt $i/30), waiting 10 seconds..."
+            sleep 10
+          done
+
+          # Final check
+          nslookup "$DATABASE_HOST"
+
       - name: Wait for Database to be Ready
         run: |
           echo "Waiting for database to be active..."
