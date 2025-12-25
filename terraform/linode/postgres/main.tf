@@ -37,7 +37,8 @@ provider "postgresql" {
   port            = linode_database_postgresql_v2.foobar.port
   username        = linode_database_postgresql_v2.foobar.root_username
   password        = linode_database_postgresql_v2.foobar.root_password
-  sslmode         = "require" # Linode managed databases always use SSL
+  database        = "defaultdb"  # Linode uses 'defaultdb' instead of 'postgres'
+  sslmode         = "require"    # Linode managed databases always use SSL
   superuser       = false
   connect_timeout = 15
 }
