@@ -21,7 +21,7 @@ variable "domain_type" {
 
 
 variable "dns_records" {
-  description = "A JSON array of DNS records, each with name, type, and value. Example: '[{"name": "nexsware.com", "type": "A", "value": "1.2.3.4"}]'"
+  description = "A JSON array of DNS records, each with name, type, and value. Example: '[{name: nex sware.com, type: A, value: 1.2.3.4}]'"
   type        = string
 }
 
