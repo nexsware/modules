@@ -12,9 +12,7 @@ resource "linode_instance" "this" {
   authorized_keys = var.authorized_keys
   tags            = var.tags
   private_ip      = var.private_ip
-  # Set your StackScript ID here (replace with the ID from Linode Cloud Manager)
-  stackscript_id  = var.stackscript_id != 0 ? var.stackscript_id : null
-  # Pass StackScript variables (e.g., server_name) as a map
+  stackscript_id  = var.stackscript_id
   stackscript_data = {
     server_name = var.server_name
   }

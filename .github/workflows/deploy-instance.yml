@@ -43,6 +43,10 @@ on:
         description: 'Domain name for nginx server_name'
         required: true
         type: string
+      stackscript_id:
+        description: 'Linode StackScript ID to use for provisioning'
+        required: true
+        type: string
     secrets:
       LINODE_TOKEN:
         description: 'Linode API Token'
@@ -97,6 +101,7 @@ jobs:
             vpc_id = "${{ inputs.vpc_id }}"
             subnet_id = "${{ inputs.subnet_id }}"
             server_name = "${{ inputs.server_name }}"
+            stackscript_id = "${{ inputs.stackscript_id }}"
           EOF
 
       - name: Terraform Init
