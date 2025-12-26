@@ -8,18 +8,6 @@ variable "domain_id" {
     description = "The ID of the existing linode domain"
     type        = number
 }
-
-variable "domain_name" {
-    description = "The name of the existing linode domain"
-    type        = string
-}
-
-variable "domain_type" {
-    description = "The type of the existing linode domain"
-    type        = string
-}
-
-
 variable "dns_records" {
   description = "A JSON array of DNS records, each with name, type, and value. Example: '[{name: nex sware.com, type: A, value: 1.2.3.4}]'"
   type        = string
