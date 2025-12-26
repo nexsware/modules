@@ -2,10 +2,6 @@ variable "server_name" {
   type        = string
   description = "The domain name for the nginx server_name directive (e.g., nexsware.com)"
 }
-variable "stackscript_id" {
-  type        = number
-  description = "The StackScript ID to use for provisioning the Linode instance."
-}
 variable "label" {
   type        = string
   description = "The label for the Linode instance"
@@ -52,11 +48,6 @@ variable "stackscript_data" {
   default     = {}
 }
 
-variable "stackscript_id" {
-  type        = number
-  description = "The StackScript ID to use for provisioning"
-  default     = 0
-}
 
 variable "firewall_ids" {
   type        = list(number)
