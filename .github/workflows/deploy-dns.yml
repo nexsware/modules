@@ -54,7 +54,7 @@ jobs:
           {
             echo "linode_token = \"${{ secrets.LINODE_TOKEN }}\""
             echo "domain_id = ${{ inputs.domain_id }}"
-            echo "dns_records = \"${{ inputs.dns_records }}\""
+            printf "dns_records = \"${{ inputs.dns_records }}\"\n"
             echo "ttl_sec = ${{ inputs.ttl_sec }}"
             echo ""  # Ensure file ends with a newline
           } > terraform.tfvars
