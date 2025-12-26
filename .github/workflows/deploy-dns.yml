@@ -54,7 +54,7 @@ jobs:
           cat > terraform.tfvars <<EOF
           linode_token = "${{ secrets.LINODE_TOKEN }}"
           domain_id = ${{ inputs.domain_id }}
-          dns_records = '${{ inputs.dns_records }}'
+          dns_records = "${{ inputs.dns_records }}"
           ttl_sec = ${{ inputs.ttl_sec }}
           EOF
 
