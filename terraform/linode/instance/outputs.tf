@@ -38,6 +38,16 @@ output "image" {
   value       = linode_instance.this.image
 }
 
+output "vpc_id" {
+  description = "The VPC ID attached to the instance (if any)"
+  value       = try(linode_vpc_interface.this[0].vpc_id, null)
+}
+
+output "subnet_id" {
+  description = "The Subnet ID attached to the instance (if any)"
+  value       = try(linode_vpc_interface.this[0].subnet_id, null)
+}
+
 output "status" {
   description = "The current status of the Linode instance"
   value       = linode_instance.this.status

@@ -47,3 +47,15 @@ variable "linodes" {
   type        = list(number)
   default     = []
 }
+
+variable "vpc_id" {
+  type        = string
+  description = "The Linode VPC ID to associate firewall with (optional)"
+  default     = ""
+}
+
+variable "subnet_id" {
+  type        = string
+  description = "The Linode Subnet ID to associate firewall with (optional)"
+  default     = ""
+}

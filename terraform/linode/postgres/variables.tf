@@ -81,3 +81,15 @@ variable "create_resources" {
   description = "Whether to create databases and users (set to false for initial database creation)"
   default     = true
 }
+
+variable "vpc_id" {
+  type        = string
+  description = "The Linode VPC ID to attach the database to (optional)"
+  default     = ""
+}
+
+variable "subnet_id" {
+  type        = string
+  description = "The Linode Subnet ID to attach the database to (optional)"
+  default     = ""
+}

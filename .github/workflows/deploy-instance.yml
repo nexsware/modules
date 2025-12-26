@@ -24,6 +24,16 @@ on:
         required: false
         type: string
         default: ''
+      vpc_id:
+        description: 'Linode VPC ID to attach the instance to'
+        required: false
+        type: string
+        default: ''
+      subnet_id:
+        description: 'Linode Subnet ID to attach the instance to'
+        required: false
+        type: string
+        default: ''
       terraform_dir:
         description: 'Directory containing Terraform configuration'
         required: false
@@ -80,6 +90,8 @@ jobs:
           root_pass = "${{ secrets.ROOT_PASS }}"
           authorized_keys = [$(if [ -n "${{ secrets.SSH_PUBLIC_KEY }}" ]; then echo '"${{ secrets.SSH_PUBLIC_KEY }}"'; fi)]
           tags = [$(if [ -n "${{ inputs.environment }}" ]; then echo '"${{ inputs.environment }}"'; fi)]
+            vpc_id = "${{ inputs.vpc_id }}"
+            subnet_id = "${{ inputs.subnet_id }}"
           EOF
 
       - name: Terraform Init

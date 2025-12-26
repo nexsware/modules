@@ -67,3 +67,15 @@ variable "private_ip" {
   default     = false
 }
 
+variable "vpc_id" {
+  type        = string
+  description = "The Linode VPC ID to attach the instance to (optional)"
+  default     = ""
+}
+
+variable "subnet_id" {
+  type        = string
+  description = "The Linode Subnet ID to attach the instance to (optional)"
+  default     = ""
+}
+

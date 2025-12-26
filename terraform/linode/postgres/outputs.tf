@@ -75,3 +75,13 @@ output "created_users" {
   value       = keys(postgresql_role.users)
   sensitive   = true
 }
+
+output "vpc_id" {
+  description = "The VPC ID attached to the database (if any)"
+  value       = try(linode_vpc_interface.this[0].vpc_id, null)
+}
+
+output "subnet_id" {
+  description = "The Subnet ID attached to the database (if any)"
+  value       = try(linode_vpc_interface.this[0].subnet_id, null)
+}

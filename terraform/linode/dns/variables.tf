@@ -39,6 +39,18 @@ variable "ttl_sec" {
     type        = number
 }
 
+variable "vpc_id" {
+  type        = string
+  description = "The Linode VPC ID to associate DNS with (optional)"
+  default     = ""
+}
+
+variable "subnet_id" {
+  type        = string
+  description = "The Linode Subnet ID to associate DNS with (optional)"
+  default     = ""
+}
+
 variable "create_dns_record" {
     description = "Whether to create a DNS record for the subdomain"
     type        = bool

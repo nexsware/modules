@@ -17,6 +17,13 @@ resource "linode_database_postgresql_v2" "foobar" {
     day_of_week = var.update_day_of_week
   }
 }
+  # Attach to VPC and subnet if provided (if supported by Linode for managed databases)
+  resource "linode_vpc_interface" "this" {
+    count      = var.vpc_id != "" && var.subnet_id != "" ? 1 : 0
+    linode_id  = linode_database_postgresql_v2.foobar.id
+    vpc_id     = var.vpc_id
+    subnet_id  = var.subnet_id
+  }
 
 # PostgreSQL provider for managing users and databases
 terraform {
