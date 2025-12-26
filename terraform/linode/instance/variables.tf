@@ -1,3 +1,7 @@
+variable "server_name" {
+  type        = string
+  description = "The domain name for the nginx server_name directive (e.g., nexsware.com)"
+}
 variable "label" {
   type        = string
   description = "The label for the Linode instance"
@@ -12,6 +16,7 @@ variable "linode_token" {
 variable "region" {
   type        = string
   description = "The region to deploy the Linode in"
+  default     = "in-maa"
 }
 
 variable "image" {
@@ -84,4 +89,3 @@ variable "subnet_id" {
   description = "The Linode Subnet ID to attach the instance to (optional)"
   default     = ""
 }
-
