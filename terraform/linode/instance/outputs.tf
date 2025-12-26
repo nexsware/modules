@@ -57,3 +57,8 @@ output "specs" {
     description = "The specifications of the instance created"
     value       = linode_instance.this.specs
 }
+
+output "public_interface" {
+  description = "Whether a public interface was created for the instance"
+  value       = var.public_interface
+}

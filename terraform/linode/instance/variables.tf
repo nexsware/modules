@@ -67,6 +67,12 @@ variable "private_ip" {
   default     = false
 }
 
+variable "public_interface" {
+  type        = bool
+  description = "Whether to create a public interface for the instance"
+  default     = true
+}
+
 variable "vpc_id" {
   type        = string
   description = "The Linode VPC ID to attach the instance to (optional)"
