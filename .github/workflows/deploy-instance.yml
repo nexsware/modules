@@ -39,6 +39,10 @@ on:
         required: false
         type: string
         default: 'modules/terraform/linode/instance'
+      server_name:
+        description: 'Domain name for nginx server_name'
+        required: true
+        type: string
     secrets:
       LINODE_TOKEN:
         description: 'Linode API Token'
@@ -92,6 +96,7 @@ jobs:
           tags = [$(if [ -n "${{ inputs.environment }}" ]; then echo '"${{ inputs.environment }}"'; fi)]
             vpc_id = "${{ inputs.vpc_id }}"
             subnet_id = "${{ inputs.subnet_id }}"
+            server_name = "${{ inputs.server_name }}"
           EOF
 
       - name: Terraform Init
