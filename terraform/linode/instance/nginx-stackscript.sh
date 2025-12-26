@@ -18,37 +18,46 @@ for i in $(seq 0 $((COUNT-1))); do
     DOMAIN=$(echo "$DOMAINS_CONTAINERS" | jq -r ".[$i].domain")
     CONTAINER=$(echo "$DOMAINS_CONTAINERS" | jq -r ".[$i].container")
 
+    # Create HTTP-only configuration first
     cat > /etc/nginx/sites-available/$DOMAIN <<EOF
 server {
         listen 80;
         server_name $DOMAIN www.$DOMAIN;
-        return 301 https://$host$request_uri;
-}
-server {
-        listen 443 ssl;
-        server_name $DOMAIN www.$DOMAIN;
-        ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
-        include /etc/letsencrypt/options-ssl-nginx.conf;
-        ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
         location / {
                 proxy_pass http://$CONTAINER;
                 proxy_http_version 1.1;
-                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Upgrade \$http_upgrade;
                 proxy_set_header Connection 'upgrade';
-                proxy_set_header Host $host;
-                proxy_set_header X-Real-IP $remote_addr;
-                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
-                proxy_cache_bypass $http_upgrade;
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto \$scheme;
+                proxy_cache_bypass \$http_upgrade;
         }
 }
 EOF
 
     ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/$DOMAIN
-
-    # Obtain SSL certificate (will fail if DNS is not set up yet)
-    certbot --nginx -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos -m admin@$DOMAIN || true
 done
 
+# Remove default site
+rm -f /etc/nginx/sites-enabled/default
+
+# Test and start nginx with HTTP-only config
+nginx -t && systemctl restart nginx
+
+# Now try to obtain SSL certificates for each domain
+for i in $(seq 0 $((COUNT-1))); do
+    DOMAIN=$(echo "$DOMAINS_CONTAINERS" | jq -r ".[$i].domain")
+
+    echo "Attempting to obtain SSL certificate for $DOMAIN..."
+    # Certbot will automatically modify the nginx config to add SSL
+    if certbot --nginx -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos -m admin@$DOMAIN --redirect; then
+        echo "SSL certificate obtained successfully for $DOMAIN"
+    else
+        echo "Failed to obtain SSL certificate for $DOMAIN - site will remain HTTP-only"
+    fi
+done
+
+# Reload nginx to apply any SSL configurations
 systemctl reload nginx

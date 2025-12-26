@@ -92,6 +92,68 @@ runs:
         docker --version
         ENDSSH
 
+    - name: Check and Fix Nginx Configuration
+      shell: bash
+      run: |
+        ssh -i ~/.ssh/deploy_key ${{ inputs.ssh-user }}@${{ inputs.server-ip }} << 'ENDSSH'
+        set -e
+
+        echo "Checking nginx status..."
+
+        # Check if nginx is installed
+        if ! command -v nginx &> /dev/null; then
+          echo "Nginx is not installed, skipping nginx check"
+          exit 0
+        fi
+
+        # Check if nginx is running and config is valid
+        if ! systemctl is-active --quiet nginx || ! nginx -t 2>/dev/null; then
+          echo "Nginx is broken or config is invalid. Attempting to fix..."
+
+          # Find all domain configs that reference missing SSL certificates
+          for conf in /etc/nginx/sites-enabled/*; do
+            if [ -f "$conf" ]; then
+              # Check if config references letsencrypt certs that don't exist
+              if grep -q "/etc/letsencrypt/" "$conf"; then
+                DOMAIN=$(basename "$conf")
+                echo "Fixing nginx config for $DOMAIN (removing SSL references)..."
+
+                # Create HTTP-only config
+                cat > "$conf" << 'EOF'
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        proxy_pass http://localhost:${{ inputs.host-port }};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+EOF
+              fi
+            fi
+          done
+
+          # Test and restart nginx
+          if nginx -t; then
+            systemctl restart nginx
+            echo "Nginx fixed and restarted successfully"
+          else
+            echo "Failed to fix nginx configuration"
+            exit 1
+          fi
+        else
+          echo "Nginx is running correctly"
+        fi
+        ENDSSH
+
     - name: Deploy Container
       id: deploy
       shell: bash
