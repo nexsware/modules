@@ -26,12 +26,12 @@ on:
         default: ''
       vpc_id:
         description: 'Linode VPC ID to attach the instance to'
-        required: false
+        required: true
         type: string
         default: ''
       subnet_id:
         description: 'Linode Subnet ID to attach the instance to'
-        required: false
+        required: true
         type: string
         default: ''
       terraform_dir:
