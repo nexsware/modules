@@ -19,19 +19,10 @@ variable "domain_type" {
     type        = string
 }
 
-variable "subdomain" {
-    description = "The subdomain to be added to the existing linode domain"
-    type        = string
-}
 
-variable "target_ip" {
-    description = "The target IP address for the subdomain"
-    type        = string
-}
-
-variable "record_type" {
-    description = "The type of the DNS record (e.g., A, CNAME)"
-    type        = string
+variable "dns_records" {
+  description = "A JSON array of DNS records, each with name, type, and value. Example: '[{"name": "nexsware.com", "type": "A", "value": "1.2.3.4"}]'"
+  type        = string
 }
 
 variable "ttl_sec" {

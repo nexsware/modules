@@ -7,37 +7,15 @@ on:
         description: 'The ID of the existing Linode domain'
         required: true
         type: number
-      domain_name:
-        description: 'The name of the existing Linode domain'
+      dns_records:
+        description: 'A JSON array of DNS records, each with name, type, and value.'
         required: true
         type: string
-      domain_type:
-        description: 'The type of the existing Linode domain'
-        required: true
-        type: string
-      subdomain:
-        description: 'The subdomain to be added'
-        required: true
-        type: string
-      target_ip:
-        description: 'The target IP address for the subdomain'
-        required: true
-        type: string
-      record_type:
-        description: 'The type of the DNS record (e.g., A, AAAA, CNAME)'
-        required: false
-        type: string
-        default: 'A'
       ttl_sec:
         description: 'The Time to Live (TTL) for the DNS record in seconds'
         required: false
         type: number
         default: 300
-      create_dns_record:
-        description: 'Whether to create a DNS record'
-        required: false
-        type: boolean
-        default: true
       terraform_dir:
         description: 'Directory containing Terraform configuration'
         required: false
@@ -76,13 +54,8 @@ jobs:
           cat > terraform.tfvars <<EOF
           linode_token = "${{ secrets.LINODE_TOKEN }}"
           domain_id = ${{ inputs.domain_id }}
-          domain_name = "${{ inputs.domain_name }}"
-          domain_type = "${{ inputs.domain_type }}"
-          subdomain = "${{ inputs.subdomain }}"
-          target_ip = "${{ inputs.target_ip }}"
-          record_type = "${{ inputs.record_type }}"
+          dns_records = '${{ inputs.dns_records }}'
           ttl_sec = ${{ inputs.ttl_sec }}
-          create_dns_record = ${{ inputs.create_dns_record }}
           EOF
 
       - name: Terraform Init
