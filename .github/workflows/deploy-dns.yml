@@ -48,6 +48,15 @@ jobs:
           terraform_version: '1.6.0'
           terraform_wrapper: false
 
+      - name: Validate DNS Records JSON
+        run: |
+          echo "Validating dns_records JSON: ${{ inputs.dns_records }}"
+          echo "${{ inputs.dns_records }}" | jq . > /dev/null
+          if [ $? -ne 0 ]; then
+            echo "Error: dns_records is not valid JSON. Please provide a valid JSON array."
+            exit 1
+          fi
+
       - name: Create Terraform Variables File
         working-directory: ${{ inputs.terraform_dir }}
         run: |
