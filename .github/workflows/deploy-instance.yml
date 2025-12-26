@@ -43,6 +43,10 @@ on:
         description: 'Domain name for nginx server_name'
         required: true
         type: string
+      domains_containers:
+        description: 'JSON array of domain-to-container mappings for nginx reverse proxy'
+        required: true
+        type: string
       stackscript_id:
         description: 'Linode StackScript ID to use for provisioning'
         required: true
@@ -101,6 +105,7 @@ jobs:
             vpc_id = "${{ inputs.vpc_id }}"
             subnet_id = "${{ inputs.subnet_id }}"
             server_name = "${{ inputs.server_name }}"
+              domains_containers = "${{ inputs.domains_containers }}"
             stackscript_id = "${{ inputs.stackscript_id }}"
           EOF
 

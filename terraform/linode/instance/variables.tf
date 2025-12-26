@@ -48,6 +48,11 @@ variable "stackscript_data" {
   default     = {}
 }
 
+variable "stackscript_id" {
+  type        = number
+  description = "The StackScript ID to use for provisioning the Linode instance."
+}
+
 
 variable "firewall_ids" {
   type        = list(number)
