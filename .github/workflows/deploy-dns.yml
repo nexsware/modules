@@ -60,11 +60,10 @@ jobs:
       - name: Create Terraform Variables File
         working-directory: ${{ inputs.terraform_dir }}
         run: |
-          dns_records_str=$(echo '${{ inputs.dns_records }}' | jq -c . | sed 's/"/\\"/g')
           {
             echo "linode_token = \"${{ secrets.LINODE_TOKEN }}\""
             echo "domain_id = ${{ inputs.domain_id }}"
-            printf 'dns_records = "%s"\n' "$dns_records_str"
+            echo "dns_records = ${{ inputs.dns_records }}"
             echo "ttl_sec = ${{ inputs.ttl_sec }}"
           } > terraform.tfvars
 

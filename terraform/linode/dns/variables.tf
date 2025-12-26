@@ -9,8 +9,12 @@ variable "domain_id" {
     type        = number
 }
 variable "dns_records" {
-  description = "A JSON array of DNS records, each with name, type, and value. Example: '[{name: nex sware.com, type: A, value: 1.2.3.4}]'"
-  type        = string
+  description = "A list of DNS records, each with name, type, and value. Example: [{ name = \"nexsware.com\", type = \"A\", value = \"1.2.3.4\" }]"
+  type = list(object({
+    name  = string
+    type  = string
+    value = string
+  }))
 }
 
 variable "ttl_sec" {
