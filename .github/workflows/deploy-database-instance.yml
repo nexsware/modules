@@ -47,6 +47,22 @@ on:
         required: false
         type: string
         default: 'postgres'
+      # Firewall Configuration
+      enable_firewall:
+        description: 'Whether to create and attach a firewall'
+        required: false
+        type: boolean
+        default: true
+      vpc_subnet_cidr:
+        description: 'VPC subnet CIDR to allow PostgreSQL access from (e.g., 10.0.0.0/27)'
+        required: false
+        type: string
+        default: '10.0.0.0/27'
+      admin_ssh_ip:
+        description: 'Your IP address for SSH access (CIDR notation, e.g., 1.2.3.4/32). Leave empty to allow from anywhere.'
+        required: false
+        type: string
+        default: ''
     secrets:
       LINODE_TOKEN:
         description: 'Linode API Token'
@@ -169,6 +185,170 @@ jobs:
             echo "Waiting for SSH... (attempt $i/30)"
             sleep 10
           done
+
+  configure-firewall:
+    runs-on: ubuntu-latest
+    needs: deploy-instance
+    if: ${{ inputs.enable_firewall }}
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Create Database Firewall
+        id: create-firewall
+        run: |
+          echo "Creating firewall for database instance..."
+
+          # Prepare SSH inbound rule
+          if [ -n "${{ inputs.admin_ssh_ip }}" ]; then
+            SSH_ADDRESSES='["${{ inputs.admin_ssh_ip }}"]'
+          else
+            SSH_ADDRESSES='["0.0.0.0/0", "::/0"]'
+          fi
+
+          # Create firewall with rules
+          FIREWALL_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"label\": \"${{ inputs.instance_label }}-firewall\",
+              \"tags\": [\"${{ inputs.environment }}\", \"database\"],
+              \"rules\": {
+                \"inbound\": [
+                  {
+                    \"label\": \"allow-ssh\",
+                    \"action\": \"ACCEPT\",
+                    \"protocol\": \"TCP\",
+                    \"ports\": \"22\",
+                    \"addresses\": {
+                      \"ipv4\": $SSH_ADDRESSES
+                    }
+                  },
+                  {
+                    \"label\": \"allow-postgres-from-vpc\",
+                    \"action\": \"ACCEPT\",
+                    \"protocol\": \"TCP\",
+                    \"ports\": \"5432\",
+                    \"addresses\": {
+                      \"ipv4\": [\"${{ inputs.vpc_subnet_cidr }}\"]
+                    }
+                  }
+                ],
+                \"inbound_policy\": \"DROP\",
+                \"outbound\": [
+                  {
+                    \"label\": \"allow-all-outbound\",
+                    \"action\": \"ACCEPT\",
+                    \"protocol\": \"TCP\",
+                    \"ports\": \"1-65535\",
+                    \"addresses\": {
+                      \"ipv4\": [\"0.0.0.0/0\"],
+                      \"ipv6\": [\"::/0\"]
+                    }
+                  },
+                  {
+                    \"label\": \"allow-all-outbound-udp\",
+                    \"action\": \"ACCEPT\",
+                    \"protocol\": \"UDP\",
+                    \"ports\": \"1-65535\",
+                    \"addresses\": {
+                      \"ipv4\": [\"0.0.0.0/0\"],
+                      \"ipv6\": [\"::/0\"]
+                    }
+                  }
+                ],
+                \"outbound_policy\": \"ACCEPT\"
+              }
+            }" \
+            "https://api.linode.com/v4/networking/firewalls")
+
+          FIREWALL_ID=$(echo "$FIREWALL_RESPONSE" | jq -r '.id')
+
+          if [ "$FIREWALL_ID" == "null" ] || [ -z "$FIREWALL_ID" ]; then
+            echo "Failed to create firewall"
+            echo "$FIREWALL_RESPONSE" | jq .
+            exit 1
+          fi
+
+          echo "Firewall created successfully!"
+          echo "Firewall ID: $FIREWALL_ID"
+
+          # Attach firewall to instance
+          echo "Attaching firewall to instance..."
+          ATTACH_RESPONSE=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"id\": ${{ needs.deploy-instance.outputs.instance_id }},
+              \"type\": \"linode\"
+            }" \
+            "https://api.linode.com/v4/networking/firewalls/${FIREWALL_ID}/devices")
+
+          echo "Firewall attached to instance"
+          echo "Firewall Rules:"
+          echo "  - SSH (22): ${{ inputs.admin_ssh_ip != '' && inputs.admin_ssh_ip || 'Allowed from anywhere' }}"
+          echo "  - PostgreSQL (5432): Only from VPC subnet ${{ inputs.vpc_subnet_cidr }}"
+          echo "  - All other inbound traffic: BLOCKED"
+
+  harden-ssh:
+    runs-on: ubuntu-latest
+    needs: deploy-instance
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' '${{ secrets.SSH_PRIVATE_KEY }}' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ needs.deploy-instance.outputs.public_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Harden SSH Configuration
+        run: |
+          PUBLIC_IP="${{ needs.deploy-instance.outputs.public_ip }}"
+
+          ssh -i ~/.ssh/deploy_key root@${PUBLIC_IP} << 'ENDSSH'
+          set -e
+
+          echo "Hardening SSH configuration..."
+
+          # Backup original sshd_config
+          cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
+
+          # Disable password authentication
+          sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+          sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+
+          # Disable root password login (keep key-based root login)
+          sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+          sed -i 's/PermitRootLogin yes/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+
+          # Disable empty passwords
+          sed -i 's/#PermitEmptyPasswords no/PermitEmptyPasswords no/' /etc/ssh/sshd_config
+          sed -i 's/PermitEmptyPasswords yes/PermitEmptyPasswords no/' /etc/ssh/sshd_config
+
+          # Enable public key authentication (should already be enabled)
+          sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+
+          # Test configuration
+          echo "Testing SSH configuration..."
+          sshd -t
+
+          if [ $? -eq 0 ]; then
+            echo "SSH configuration is valid"
+            systemctl restart sshd
+            echo "✓ SSH hardened successfully"
+            echo "  - Password authentication: DISABLED"
+            echo "  - Root login: Key-based only"
+            echo "  - Public key authentication: ENABLED"
+          else
+            echo "✗ SSH configuration test failed, restoring backup"
+            cp /etc/ssh/sshd_config.backup /etc/ssh/sshd_config
+            exit 1
+          fi
+          ENDSSH
+
+      - name: Cleanup SSH Key
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
 
   deploy-postgres:
     runs-on: ubuntu-latest
