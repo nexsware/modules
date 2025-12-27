@@ -424,8 +424,15 @@ jobs:
           echo "Docker installed successfully"
           docker --version
 
-          # Get VPC IP
-          VPC_IP=$(ip -4 addr show | grep -oP '10\.\d+\.\d+\.\d+' | head -1)
+          # Get VPC IP (can be 10.x.x.x or 192.168.x.x)
+          VPC_IP=$(ip -4 addr show | grep -oP '(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+)' | head -1)
+
+          if [ -z "$VPC_IP" ]; then
+            echo "Error: Could not find VPC IP address"
+            ip -4 addr show
+            exit 1
+          fi
+
           echo "Binding PostgreSQL to VPC IP: $VPC_IP"
 
           # Create volume for data persistence
@@ -449,7 +456,7 @@ jobs:
             -e POSTGRES_USER=${{ inputs.postgres_user }} \
             -e POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
             -e POSTGRES_DB=${{ inputs.postgres_db }} \
-            -v postgres-data:/var/lib/postgresql/data \
+            -v postgres-data:/var/lib/postgresql \
             -p ${VPC_IP}:5432:5432 \
             postgres:${{ inputs.postgres_version }}
 
