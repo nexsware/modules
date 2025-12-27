@@ -294,69 +294,6 @@ jobs:
           echo "  - PostgreSQL (5432): Only from VPC subnet ${{ inputs.vpc_subnet_cidr }}"
           echo "  - All other inbound traffic: BLOCKED"
 
-  harden-ssh:
-    runs-on: ubuntu-latest
-    needs: deploy-instance
-    environment: ${{ inputs.environment }}
-    steps:
-      - name: Setup SSH Key
-        run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' '${{ secrets.SSH_PRIVATE_KEY }}' > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ needs.deploy-instance.outputs.public_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
-
-      - name: Harden SSH Configuration
-        run: |
-          PUBLIC_IP="${{ needs.deploy-instance.outputs.public_ip }}"
-
-          ssh -i ~/.ssh/deploy_key root@${PUBLIC_IP} << 'ENDSSH'
-          set -e
-
-          echo "Hardening SSH configuration..."
-
-          # Backup original sshd_config
-          cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
-
-          # Disable password authentication
-          sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
-          sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
-
-          # Disable root password login (keep key-based root login)
-          sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-          sed -i 's/PermitRootLogin yes/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-
-          # Disable empty passwords
-          sed -i 's/#PermitEmptyPasswords no/PermitEmptyPasswords no/' /etc/ssh/sshd_config
-          sed -i 's/PermitEmptyPasswords yes/PermitEmptyPasswords no/' /etc/ssh/sshd_config
-
-          # Enable public key authentication (should already be enabled)
-          sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-
-          # Test configuration
-          echo "Testing SSH configuration..."
-          sshd -t
-
-          if [ $? -eq 0 ]; then
-            echo "SSH configuration is valid"
-            # Ubuntu uses 'ssh' service name, not 'sshd'
-            systemctl restart ssh
-            echo "✓ SSH hardened successfully"
-            echo "  - Password authentication: DISABLED"
-            echo "  - Root login: Key-based only"
-            echo "  - Public key authentication: ENABLED"
-          else
-            echo "✗ SSH configuration test failed, restoring backup"
-            cp /etc/ssh/sshd_config.backup /etc/ssh/sshd_config
-            exit 1
-          fi
-          ENDSSH
-
-      - name: Cleanup SSH Key
-        if: always()
-        run: |
-          rm -f ~/.ssh/deploy_key
-
   deploy-postgres:
     runs-on: ubuntu-latest
     needs: deploy-instance
