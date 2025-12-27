@@ -336,7 +336,8 @@ jobs:
 
           if [ $? -eq 0 ]; then
             echo "SSH configuration is valid"
-            systemctl restart sshd
+            # Ubuntu uses 'ssh' service name, not 'sshd'
+            systemctl restart ssh
             echo "✓ SSH hardened successfully"
             echo "  - Password authentication: DISABLED"
             echo "  - Root login: Key-based only"
@@ -374,7 +375,8 @@ jobs:
             INSTANCE_DATA=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
               "https://api.linode.com/v4/linode/instances/${{ needs.deploy-instance.outputs.instance_id }}")
 
-            VPC_IP=$(echo "$INSTANCE_DATA" | jq -r '.ipv4[] | select(startswith("10."))')
+            # VPC IPs can be in 10.x.x.x or 192.168.x.x ranges
+            VPC_IP=$(echo "$INSTANCE_DATA" | jq -r '.ipv4[] | select(startswith("10.") or startswith("192.168."))')
 
             if [ -n "$VPC_IP" ]; then
               echo "VPC IP found: $VPC_IP"
