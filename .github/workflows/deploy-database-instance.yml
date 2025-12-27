@@ -206,6 +206,9 @@ jobs:
             SSH_IPV6='["::/0"]'
           fi
 
+          echo "Debug - SSH_IPV4: $SSH_IPV4"
+          echo "Debug - SSH_IPV6: $SSH_IPV6"
+
           # Create firewall with rules
           FIREWALL_RESPONSE=$(curl -s -X POST \
             -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
