@@ -68,10 +68,23 @@ on:
         required: false
         type: string
         default: ''
+      ssh_tunnel_host:
+        description: 'SSH host to tunnel through (required if database is on VPC private IP). Use the public IP of the database server.'
+        required: false
+        type: string
+        default: ''
+      ssh_tunnel_user:
+        description: 'SSH user for tunneling'
+        required: false
+        type: string
+        default: 'root'
     secrets:
       DATABASE_PASSWORD:
         description: 'Database password'
         required: true
+      SSH_PRIVATE_KEY:
+        description: 'SSH private key for tunneling (required if ssh_tunnel_host is provided)'
+        required: false
     outputs:
       migration_status:
         description: 'Status of the migration execution'
@@ -113,6 +126,39 @@ jobs:
             echo "Warning: No SQL migration files found in ${{ inputs.migrations_path }}"
           fi
 
+      - name: Setup SSH Tunnel (if required)
+        if: ${{ inputs.ssh_tunnel_host != '' }}
+        run: |
+          echo "Setting up SSH tunnel for VPC database access..."
+
+          # Setup SSH key
+          mkdir -p ~/.ssh
+          printf '%s\n' '${{ secrets.SSH_PRIVATE_KEY }}' > ~/.ssh/tunnel_key
+          chmod 600 ~/.ssh/tunnel_key
+          ssh-keyscan -H ${{ inputs.ssh_tunnel_host }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          # Start SSH tunnel in background (local 5432 -> VPC database)
+          ssh -f -N -L 5432:${{ inputs.database_host }}:${{ inputs.database_port }} \
+            -i ~/.ssh/tunnel_key \
+            -o StrictHostKeyChecking=no \
+            ${{ inputs.ssh_tunnel_user }}@${{ inputs.ssh_tunnel_host }}
+
+          # Wait for tunnel to be established
+          sleep 5
+
+          echo "SSH tunnel established: localhost:5432 -> ${{ inputs.database_host }}:${{ inputs.database_port }}"
+          echo "TUNNEL_ACTIVE=true" >> $GITHUB_ENV
+          echo "DB_HOST=localhost" >> $GITHUB_ENV
+          echo "DB_PORT=5432" >> $GITHUB_ENV
+
+      - name: Set Database Connection (direct)
+        if: ${{ inputs.ssh_tunnel_host == '' }}
+        run: |
+          echo "Using direct database connection (no SSH tunnel)"
+          echo "TUNNEL_ACTIVE=false" >> $GITHUB_ENV
+          echo "DB_HOST=${{ inputs.database_host }}" >> $GITHUB_ENV
+          echo "DB_PORT=${{ inputs.database_port }}" >> $GITHUB_ENV
+
       - name: Download Flyway
         run: |
           echo "Downloading Flyway ${{ inputs.flyway_version }}..."
@@ -128,11 +174,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
-          # Test connection
+          # Test connection using environment variables set by previous steps
           export PGPASSWORD='${{ secrets.DATABASE_PASSWORD }}'
 
-          if psql -h ${{ inputs.database_host }} \
-                  -p ${{ inputs.database_port }} \
+          if [ "$TUNNEL_ACTIVE" == "true" ]; then
+            echo "Testing connection through SSH tunnel..."
+            echo "  Tunnel: localhost:5432 -> ${{ inputs.database_host }}:${{ inputs.database_port }}"
+          else
+            echo "Testing direct connection..."
+          fi
+
+          if psql -h $DB_HOST \
+                  -p $DB_PORT \
                   -U ${{ inputs.database_user }} \
                   -d ${{ inputs.database_name }} \
                   -c "SELECT version();" > /dev/null 2>&1; then
@@ -140,18 +193,19 @@ jobs:
           else
             echo "✗ Failed to connect to database"
             echo "Connection details (password hidden):"
-            echo "  Host: ${{ inputs.database_host }}"
-            echo "  Port: ${{ inputs.database_port }}"
+            echo "  Host: $DB_HOST"
+            echo "  Port: $DB_PORT"
             echo "  Database: ${{ inputs.database_name }}"
             echo "  User: ${{ inputs.database_user }}"
+            echo "  Tunnel Active: $TUNNEL_ACTIVE"
             exit 1
           fi
 
       - name: Configure Flyway
         run: |
-          # Create Flyway configuration file
+          # Create Flyway configuration file using connection details
           cat > flyway.conf <<EOF
-          flyway.url=jdbc:postgresql://${{ inputs.database_host }}:${{ inputs.database_port }}/${{ inputs.database_name }}
+          flyway.url=jdbc:postgresql://$DB_HOST:$DB_PORT/${{ inputs.database_name }}
           flyway.user=${{ inputs.database_user }}
           flyway.password=${{ secrets.DATABASE_PASSWORD }}
           flyway.locations=filesystem:${{ inputs.migrations_path }}
@@ -163,6 +217,9 @@ jobs:
           EOF
 
           echo "Flyway configuration created (password hidden)"
+          if [ "$TUNNEL_ACTIVE" == "true" ]; then
+            echo "Using SSH tunnel: localhost:5432 -> ${{ inputs.database_host }}:${{ inputs.database_port }}"
+          fi
 
       - name: Get Current Migration Status
         id: flyway-info-before
@@ -252,5 +309,12 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
+          # Kill SSH tunnel if it was created
+          if [ "$TUNNEL_ACTIVE" == "true" ]; then
+            echo "Closing SSH tunnel..."
+            pkill -f "ssh -f -N -L 5432" || true
+            rm -f ~/.ssh/tunnel_key
+          fi
+
           # Remove config file containing password
           rm -f flyway.conf
