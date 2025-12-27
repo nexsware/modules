@@ -183,24 +183,49 @@ jobs:
 
       - name: Install Flyway
         run: |
-          # Check if Flyway is already installed and is the correct version
-          if command -v flyway &> /dev/null; then
-            INSTALLED_VERSION=$(flyway --version 2>&1 | grep -oP 'Flyway.*?\K\d+\.\d+\.\d+' || echo "unknown")
-            echo "Found existing Flyway version: $INSTALLED_VERSION"
+          REQUIRED_VERSION="${{ inputs.flyway_version }}"
 
-            if [ "$INSTALLED_VERSION" = "${{ inputs.flyway_version }}" ]; then
-              echo "✓ Flyway ${{ inputs.flyway_version }} already installed, skipping download"
+          # Function to compare versions (returns 0 if v1 >= v2, 1 otherwise)
+          version_ge() {
+            [ "$(printf '%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+          }
+
+          # Check if Flyway is already installed
+          if command -v flyway &> /dev/null; then
+            INSTALLED_VERSION=$(flyway --version 2>&1 | grep -oP 'Flyway.*?\K\d+\.\d+\.\d+' || echo "0.0.0")
+            echo "Found existing Flyway version: $INSTALLED_VERSION"
+            echo "Required version: $REQUIRED_VERSION"
+
+            # If installed version is the same, skip
+            if [ "$INSTALLED_VERSION" = "$REQUIRED_VERSION" ]; then
+              echo "✓ Flyway $REQUIRED_VERSION already installed, skipping installation"
               exit 0
+            fi
+
+            # If required version is newer, uninstall old version
+            if version_ge "$REQUIRED_VERSION" "$INSTALLED_VERSION"; then
+              echo "Newer version required ($REQUIRED_VERSION > $INSTALLED_VERSION)"
+              echo "Uninstalling old version $INSTALLED_VERSION..."
+
+              # Remove symlink
+              sudo rm -f /usr/local/bin/flyway
+
+              # Remove old flyway directories
+              rm -rf flyway-* 2>/dev/null || true
+
+              echo "✓ Old version removed"
             else
-              echo "Different version installed, will install ${{ inputs.flyway_version }}"
+              echo "Required version ($REQUIRED_VERSION) is older than installed ($INSTALLED_VERSION)"
+              echo "Keeping existing installation"
+              exit 0
             fi
           fi
 
-          echo "Installing Flyway ${{ inputs.flyway_version }}..."
+          echo "Installing Flyway $REQUIRED_VERSION..."
 
           # Download with retries
           for i in {1..3}; do
-            if wget -O flyway.tar.gz https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/${{ inputs.flyway_version }}/flyway-commandline-${{ inputs.flyway_version }}-linux-x64.tar.gz; then
+            if wget -O flyway.tar.gz https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/$REQUIRED_VERSION/flyway-commandline-$REQUIRED_VERSION-linux-x64.tar.gz; then
               echo "✓ Download successful"
               break
             else
@@ -221,12 +246,11 @@ jobs:
           tar xzf flyway.tar.gz
           rm flyway.tar.gz
 
-          # Create symlink (remove old one if exists)
-          sudo rm -f /usr/local/bin/flyway
-          sudo ln -s $(pwd)/flyway-${{ inputs.flyway_version }}/flyway /usr/local/bin/flyway
+          # Create symlink
+          sudo ln -s $(pwd)/flyway-$REQUIRED_VERSION/flyway /usr/local/bin/flyway
 
           # Verify installation
-          echo "✓ Flyway installed successfully"
+          echo "✓ Flyway $REQUIRED_VERSION installed successfully"
           flyway --version
 
       - name: Test Database Connectivity
