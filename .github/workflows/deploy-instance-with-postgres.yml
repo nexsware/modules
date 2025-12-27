@@ -1,0 +1,330 @@
+name: Deploy Linode Instance with PostgreSQL (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      region:
+        description: 'Linode Region'
+        required: true
+        type: string
+      instance_type:
+        description: 'Linode Instance Type'
+        required: true
+        type: string
+      image:
+        description: 'Linode Image'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment (e.g., test, prod)'
+        required: true
+        type: string
+      application_name:
+        description: 'Application Name'
+        required: false
+        type: string
+        default: ''
+      vpc_id:
+        description: 'Linode VPC ID to attach the instance to'
+        required: true
+        type: string
+      subnet_id:
+        description: 'Linode Subnet ID to attach the instance to'
+        required: true
+        type: string
+      server_name:
+        description: 'Domain name for nginx server_name'
+        required: true
+        type: string
+      domains_containers:
+        description: 'JSON array of domain-to-container mappings for nginx reverse proxy'
+        required: true
+        type: string
+      stackscript_id:
+        description: 'Linode StackScript ID to use for provisioning'
+        required: true
+        type: string
+      # PostgreSQL Configuration
+      enable_postgres:
+        description: 'Whether to deploy PostgreSQL on this instance'
+        required: false
+        type: boolean
+        default: false
+      postgres_version:
+        description: 'PostgreSQL version (e.g., 16, 15, 14)'
+        required: false
+        type: string
+        default: '16'
+      postgres_db:
+        description: 'Default database name to create'
+        required: false
+        type: string
+        default: 'appdb'
+      postgres_user:
+        description: 'PostgreSQL username'
+        required: false
+        type: string
+        default: 'postgres'
+    secrets:
+      LINODE_TOKEN:
+        description: 'Linode API Token'
+        required: true
+      ROOT_PASS:
+        description: 'Root Password for Linode Instance'
+        required: true
+      SSH_PUBLIC_KEY:
+        description: 'SSH Public Key for Linode Instance'
+        required: false
+      SSH_PRIVATE_KEY:
+        description: 'SSH Private Key for server access (required if enable_postgres is true)'
+        required: false
+      POSTGRES_PASSWORD:
+        description: 'PostgreSQL password (required if enable_postgres is true)'
+        required: false
+    outputs:
+      instance_id:
+        description: 'The ID of the created instance'
+        value: ${{ jobs.deploy-instance.outputs.instance_id }}
+      ip_address:
+        description: 'The public IP address of the instance'
+        value: ${{ jobs.deploy-instance.outputs.ip_address }}
+      vpc_ip:
+        description: 'The VPC private IP address of the instance'
+        value: ${{ jobs.deploy-postgres.outputs.vpc_ip }}
+      postgres_host:
+        description: 'PostgreSQL host (VPC IP)'
+        value: ${{ jobs.deploy-postgres.outputs.postgres_host }}
+      postgres_port:
+        description: 'PostgreSQL port'
+        value: ${{ jobs.deploy-postgres.outputs.postgres_port }}
+      postgres_connection_string:
+        description: 'PostgreSQL connection string for applications'
+        value: ${{ jobs.deploy-postgres.outputs.postgres_connection_string }}
+      ssh_tunnel_command:
+        description: 'SSH tunnel command for local pgAdmin access'
+        value: ${{ jobs.deploy-postgres.outputs.ssh_tunnel_command }}
+
+jobs:
+  deploy-instance:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      instance_id: ${{ steps.terraform-apply.outputs.instance_id }}
+      ip_address: ${{ steps.terraform-apply.outputs.ip_address }}
+    steps:
+      - name: Checkout Terraform Modules
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: '1.6.0'
+          terraform_wrapper: false
+
+      - name: Create Terraform Variables File
+        working-directory: modules/terraform/linode/instance
+        run: |
+          cat > terraform.tfvars <<EOF
+          linode_token = "${{ secrets.LINODE_TOKEN }}"
+          region = "${{ inputs.region }}"
+          type = "${{ inputs.instance_type }}"
+          image = "${{ inputs.image }}"
+          label = "${{ inputs.environment }}-${{ inputs.application_name }}"
+          root_pass = "${{ secrets.ROOT_PASS }}"
+          authorized_keys = [$(if [ -n "${{ secrets.SSH_PUBLIC_KEY }}" ]; then echo '"${{ secrets.SSH_PUBLIC_KEY }}"'; fi)]
+          tags = [$(if [ -n "${{ inputs.environment }}" ]; then echo '"${{ inputs.environment }}"'; fi)]
+          vpc_id = "${{ inputs.vpc_id }}"
+          subnet_id = "${{ inputs.subnet_id }}"
+          server_name = "${{ inputs.server_name }}"
+          domains_containers = "${{ inputs.domains_containers }}"
+          stackscript_id = "${{ inputs.stackscript_id }}"
+          EOF
+
+      - name: Terraform Init
+        working-directory: modules/terraform/linode/instance
+        run: terraform init
+
+      - name: Terraform Apply
+        id: terraform-apply
+        working-directory: modules/terraform/linode/instance
+        run: |
+          terraform apply -auto-approve
+          echo "instance_id=$(terraform output -raw id)" >> $GITHUB_OUTPUT
+          echo "ip_address=$(terraform output -raw ip_address)" >> $GITHUB_OUTPUT
+
+      - name: Wait for Instance to be Ready
+        run: |
+          echo "Waiting for instance to boot and SSH to be available..."
+          IP_ADDRESS="${{ steps.terraform-apply.outputs.ip_address }}"
+          for i in {1..30}; do
+            if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$IP_ADDRESS/22" 2>/dev/null; then
+              echo "SSH is available on $IP_ADDRESS"
+              sleep 10
+              break
+            fi
+            echo "Waiting for SSH... (attempt $i/30)"
+            sleep 10
+          done
+
+  deploy-postgres:
+    runs-on: ubuntu-latest
+    needs: deploy-instance
+    if: ${{ inputs.enable_postgres }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      vpc_ip: ${{ steps.get-vpc-ip.outputs.vpc_ip }}
+      postgres_host: ${{ steps.deploy-db.outputs.postgres_host }}
+      postgres_port: ${{ steps.deploy-db.outputs.postgres_port }}
+      postgres_connection_string: ${{ steps.deploy-db.outputs.connection_string }}
+      ssh_tunnel_command: ${{ steps.deploy-db.outputs.ssh_tunnel_command }}
+    steps:
+      - name: Get Instance VPC IP
+        id: get-vpc-ip
+        run: |
+          echo "Fetching VPC IP for instance..."
+          INSTANCE_DATA=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+            "https://api.linode.com/v4/linode/instances/${{ needs.deploy-instance.outputs.instance_id }}")
+
+          VPC_IP=$(echo "$INSTANCE_DATA" | jq -r '.ipv4[] | select(startswith("10."))')
+
+          if [ -z "$VPC_IP" ]; then
+            echo "Warning: No VPC IP found. PostgreSQL will bind to all interfaces."
+            VPC_IP=""
+          else
+            echo "VPC IP: $VPC_IP"
+          fi
+
+          echo "vpc_ip=$VPC_IP" >> $GITHUB_OUTPUT
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' '${{ secrets.SSH_PRIVATE_KEY }}' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ needs.deploy-instance.outputs.ip_address }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy PostgreSQL Container
+        id: deploy-db
+        run: |
+          VPC_IP="${{ steps.get-vpc-ip.outputs.vpc_ip }}"
+          PUBLIC_IP="${{ needs.deploy-instance.outputs.ip_address }}"
+
+          ssh -i ~/.ssh/deploy_key root@${PUBLIC_IP} << 'ENDSSH'
+          set -e
+
+          # Wait for Docker to be available (installed by StackScript or previous step)
+          echo "Waiting for Docker to be available..."
+          for i in {1..30}; do
+            if command -v docker &> /dev/null; then
+              echo "Docker is available"
+              break
+            fi
+            echo "Waiting for Docker... (attempt $i/30)"
+            sleep 10
+          done
+
+          # Determine bind address
+          VPC_IP="${{ steps.get-vpc-ip.outputs.vpc_ip }}"
+          if [ -n "$VPC_IP" ]; then
+            BIND_IP="$VPC_IP"
+            echo "Binding PostgreSQL to VPC IP: $BIND_IP"
+          else
+            BIND_IP="127.0.0.1"
+            echo "Binding PostgreSQL to localhost only (SSH tunnel required)"
+          fi
+
+          # Stop and remove existing container if it exists
+          if [ "$(docker ps -aq -f name=postgres)" ]; then
+            echo "Stopping existing PostgreSQL container..."
+            docker stop postgres || true
+            docker rm postgres || true
+          fi
+
+          # Create volume if it doesn't exist
+          if ! docker volume inspect postgres-data >/dev/null 2>&1; then
+            echo "Creating data volume: postgres-data"
+            docker volume create postgres-data
+          fi
+
+          # Deploy PostgreSQL container
+          echo "Deploying PostgreSQL ${{ inputs.postgres_version }} container..."
+          docker run -d \
+            --name postgres \
+            --restart unless-stopped \
+            -e POSTGRES_USER=${{ inputs.postgres_user }} \
+            -e POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
+            -e POSTGRES_DB=${{ inputs.postgres_db }} \
+            -v postgres-data:/var/lib/postgresql/data \
+            -p ${BIND_IP}:5432:5432 \
+            postgres:${{ inputs.postgres_version }}
+
+          # Wait for PostgreSQL to be ready
+          echo "Waiting for PostgreSQL to be ready..."
+          sleep 10
+
+          # Check container status
+          if docker ps | grep -q postgres; then
+            echo "PostgreSQL container is running successfully"
+            docker logs postgres --tail 20
+            echo "POSTGRES_DEPLOYED=success"
+          else
+            echo "PostgreSQL container failed to start"
+            docker logs postgres
+            exit 1
+          fi
+          ENDSSH
+
+          # Set outputs
+          if [ -n "$VPC_IP" ]; then
+            POSTGRES_HOST="$VPC_IP"
+            TUNNEL_TARGET="$VPC_IP"
+          else
+            POSTGRES_HOST="127.0.0.1"
+            TUNNEL_TARGET="127.0.0.1"
+          fi
+
+          echo "postgres_host=$POSTGRES_HOST" >> $GITHUB_OUTPUT
+          echo "postgres_port=5432" >> $GITHUB_OUTPUT
+
+          # Connection string for applications
+          CONN_STRING="postgresql://${{ inputs.postgres_user }}:${{ secrets.POSTGRES_PASSWORD }}@${POSTGRES_HOST}:5432/${{ inputs.postgres_db }}"
+          echo "connection_string=$CONN_STRING" >> $GITHUB_OUTPUT
+
+          # SSH tunnel command for local access
+          TUNNEL_CMD="ssh -L 5432:${TUNNEL_TARGET}:5432 root@${PUBLIC_IP}"
+          echo "ssh_tunnel_command=$TUNNEL_CMD" >> $GITHUB_OUTPUT
+
+      - name: Display Connection Info
+        run: |
+          echo "========================================="
+          echo "PostgreSQL Deployed Successfully!"
+          echo "========================================="
+          echo ""
+          echo "Instance Details:"
+          echo "  Public IP: ${{ needs.deploy-instance.outputs.ip_address }}"
+          echo "  VPC IP: ${{ steps.get-vpc-ip.outputs.vpc_ip }}"
+          echo ""
+          echo "PostgreSQL Connection (from within VPC/instance):"
+          echo "  Host: ${{ steps.deploy-db.outputs.postgres_host }}"
+          echo "  Port: ${{ steps.deploy-db.outputs.postgres_port }}"
+          echo "  User: ${{ inputs.postgres_user }}"
+          echo "  Database: ${{ inputs.postgres_db }}"
+          echo "  Connection String: ${{ steps.deploy-db.outputs.connection_string }}"
+          echo ""
+          echo "For local pgAdmin access, create SSH tunnel:"
+          echo "  ${{ steps.deploy-db.outputs.ssh_tunnel_command }}"
+          echo ""
+          echo "Then connect pgAdmin to:"
+          echo "  Host: localhost"
+          echo "  Port: 5432"
+          echo "  User: ${{ inputs.postgres_user }}"
+          echo "  Database: ${{ inputs.postgres_db }}"
+          echo "========================================="
+
+      - name: Cleanup SSH Key
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key

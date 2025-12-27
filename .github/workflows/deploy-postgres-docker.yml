@@ -1,0 +1,184 @@
+name: Deploy Self-Hosted PostgreSQL (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      server_ip:
+        description: 'Server IP address where PostgreSQL will be deployed'
+        required: true
+        type: string
+      postgres_version:
+        description: 'PostgreSQL version (e.g., 16, 15, 14)'
+        required: false
+        type: string
+        default: '16'
+      postgres_db:
+        description: 'Default database name to create'
+        required: false
+        type: string
+        default: 'appdb'
+      postgres_user:
+        description: 'PostgreSQL username'
+        required: false
+        type: string
+        default: 'postgres'
+      container_name:
+        description: 'Docker container name'
+        required: false
+        type: string
+        default: 'postgres'
+      data_volume:
+        description: 'Docker volume name for data persistence'
+        required: false
+        type: string
+        default: 'postgres-data'
+      vpc_ip:
+        description: 'VPC private IP to bind PostgreSQL to (e.g., 10.0.0.5). If empty, binds to all interfaces.'
+        required: false
+        type: string
+        default: ''
+      ssh_user:
+        description: 'SSH user for server access'
+        required: false
+        type: string
+        default: 'root'
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: 'SSH private key for server access'
+        required: true
+      POSTGRES_PASSWORD:
+        description: 'PostgreSQL password'
+        required: true
+    outputs:
+      postgres_host:
+        description: 'PostgreSQL host (VPC IP or server IP)'
+        value: ${{ jobs.deploy-postgres.outputs.postgres_host }}
+      postgres_port:
+        description: 'PostgreSQL port'
+        value: ${{ jobs.deploy-postgres.outputs.postgres_port }}
+      postgres_user:
+        description: 'PostgreSQL username'
+        value: ${{ jobs.deploy-postgres.outputs.postgres_user }}
+      postgres_db:
+        description: 'PostgreSQL database name'
+        value: ${{ jobs.deploy-postgres.outputs.postgres_db }}
+      ssh_tunnel_command:
+        description: 'SSH tunnel command for local access'
+        value: ${{ jobs.deploy-postgres.outputs.ssh_tunnel_command }}
+
+jobs:
+  deploy-postgres:
+    runs-on: ubuntu-latest
+    outputs:
+      postgres_host: ${{ steps.deploy.outputs.postgres_host }}
+      postgres_port: ${{ steps.deploy.outputs.postgres_port }}
+      postgres_user: ${{ inputs.postgres_user }}
+      postgres_db: ${{ inputs.postgres_db }}
+      ssh_tunnel_command: ${{ steps.deploy.outputs.ssh_tunnel_command }}
+    steps:
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' '${{ secrets.SSH_PRIVATE_KEY }}' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ inputs.server_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy PostgreSQL Container
+        id: deploy
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} << 'ENDSSH'
+          set -e
+
+          # Determine bind address
+          if [ -n "${{ inputs.vpc_ip }}" ]; then
+            BIND_IP="${{ inputs.vpc_ip }}"
+            echo "Binding PostgreSQL to VPC IP: $BIND_IP"
+          else
+            BIND_IP="0.0.0.0"
+            echo "Binding PostgreSQL to all interfaces"
+          fi
+
+          # Stop and remove existing container if it exists
+          if [ "$(docker ps -aq -f name=${{ inputs.container_name }})" ]; then
+            echo "Stopping existing PostgreSQL container..."
+            docker stop ${{ inputs.container_name }} || true
+            docker rm ${{ inputs.container_name }} || true
+          fi
+
+          # Create volume if it doesn't exist
+          if ! docker volume inspect ${{ inputs.data_volume }} >/dev/null 2>&1; then
+            echo "Creating data volume: ${{ inputs.data_volume }}"
+            docker volume create ${{ inputs.data_volume }}
+          fi
+
+          # Deploy PostgreSQL container
+          echo "Deploying PostgreSQL container..."
+          docker run -d \
+            --name ${{ inputs.container_name }} \
+            --restart unless-stopped \
+            -e POSTGRES_USER=${{ inputs.postgres_user }} \
+            -e POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
+            -e POSTGRES_DB=${{ inputs.postgres_db }} \
+            -v ${{ inputs.data_volume }}:/var/lib/postgresql/data \
+            -p ${BIND_IP}:5432:5432 \
+            postgres:${{ inputs.postgres_version }}
+
+          # Wait for PostgreSQL to be ready
+          echo "Waiting for PostgreSQL to be ready..."
+          sleep 10
+
+          # Check container status
+          if docker ps | grep -q ${{ inputs.container_name }}; then
+            echo "PostgreSQL container is running successfully"
+            docker logs ${{ inputs.container_name }} --tail 20
+          else
+            echo "PostgreSQL container failed to start"
+            docker logs ${{ inputs.container_name }}
+            exit 1
+          fi
+
+          # Output connection details
+          echo "POSTGRES_HOST=${BIND_IP}"
+          echo "POSTGRES_PORT=5432"
+          ENDSSH
+
+          # Extract outputs and set them
+          if [ -n "${{ inputs.vpc_ip }}" ]; then
+            POSTGRES_HOST="${{ inputs.vpc_ip }}"
+          else
+            POSTGRES_HOST="${{ inputs.server_ip }}"
+          fi
+
+          echo "postgres_host=$POSTGRES_HOST" >> $GITHUB_OUTPUT
+          echo "postgres_port=5432" >> $GITHUB_OUTPUT
+
+          # Generate SSH tunnel command for local access
+          TUNNEL_CMD="ssh -L 5432:${POSTGRES_HOST}:5432 ${{ inputs.ssh_user }}@${{ inputs.server_ip }}"
+          echo "ssh_tunnel_command=$TUNNEL_CMD" >> $GITHUB_OUTPUT
+
+      - name: Display Connection Info
+        run: |
+          echo "========================================="
+          echo "PostgreSQL Deployed Successfully!"
+          echo "========================================="
+          echo ""
+          echo "Connection Details (from within VPC):"
+          echo "  Host: ${{ steps.deploy.outputs.postgres_host }}"
+          echo "  Port: ${{ steps.deploy.outputs.postgres_port }}"
+          echo "  User: ${{ inputs.postgres_user }}"
+          echo "  Database: ${{ inputs.postgres_db }}"
+          echo ""
+          echo "For local access via pgAdmin, create an SSH tunnel:"
+          echo "  ${{ steps.deploy.outputs.ssh_tunnel_command }}"
+          echo ""
+          echo "Then connect pgAdmin to:"
+          echo "  Host: localhost"
+          echo "  Port: 5432"
+          echo "  User: ${{ inputs.postgres_user }}"
+          echo "  Database: ${{ inputs.postgres_db }}"
+          echo "========================================="
+
+      - name: Cleanup SSH Key
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
