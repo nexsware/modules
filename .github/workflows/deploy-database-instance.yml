@@ -199,9 +199,11 @@ jobs:
 
           # Prepare SSH inbound rule
           if [ -n "${{ inputs.admin_ssh_ip }}" ]; then
-            SSH_ADDRESSES='["${{ inputs.admin_ssh_ip }}"]'
+            SSH_IPV4='["${{ inputs.admin_ssh_ip }}"]'
+            SSH_IPV6='[]'
           else
-            SSH_ADDRESSES='["0.0.0.0/0", "::/0"]'
+            SSH_IPV4='["0.0.0.0/0"]'
+            SSH_IPV6='["::/0"]'
           fi
 
           # Create firewall with rules
@@ -219,7 +221,8 @@ jobs:
                     \"protocol\": \"TCP\",
                     \"ports\": \"22\",
                     \"addresses\": {
-                      \"ipv4\": $SSH_ADDRESSES
+                      \"ipv4\": $SSH_IPV4,
+                      \"ipv6\": $SSH_IPV6
                     }
                   },
                   {
@@ -365,18 +368,28 @@ jobs:
         id: get-vpc-ip
         run: |
           echo "Fetching VPC IP for instance..."
-          INSTANCE_DATA=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
-            "https://api.linode.com/v4/linode/instances/${{ needs.deploy-instance.outputs.instance_id }}")
 
-          VPC_IP=$(echo "$INSTANCE_DATA" | jq -r '.ipv4[] | select(startswith("10."))')
+          # VPC IP may not be immediately available, retry for up to 2 minutes
+          for i in {1..24}; do
+            INSTANCE_DATA=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+              "https://api.linode.com/v4/linode/instances/${{ needs.deploy-instance.outputs.instance_id }}")
 
-          if [ -z "$VPC_IP" ]; then
-            echo "Error: No VPC IP found for instance"
-            exit 1
-          fi
+            VPC_IP=$(echo "$INSTANCE_DATA" | jq -r '.ipv4[] | select(startswith("10."))')
 
-          echo "VPC IP: $VPC_IP"
-          echo "vpc_ip=$VPC_IP" >> $GITHUB_OUTPUT
+            if [ -n "$VPC_IP" ]; then
+              echo "VPC IP found: $VPC_IP"
+              echo "vpc_ip=$VPC_IP" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+
+            echo "VPC IP not yet assigned (attempt $i/24), waiting 5 seconds..."
+            sleep 5
+          done
+
+          echo "Error: No VPC IP found for instance after 2 minutes"
+          echo "Instance data:"
+          echo "$INSTANCE_DATA" | jq .
+          exit 1
 
       - name: Setup SSH Key
         run: |
