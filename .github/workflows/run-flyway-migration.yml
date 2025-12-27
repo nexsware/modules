@@ -37,7 +37,7 @@ on:
         description: 'Flyway version to use'
         required: false
         type: string
-        default: '10.4.1'
+        default: '11.20.0'
       baseline_on_migrate:
         description: 'Enable baseline on migrate for existing databases'
         required: false
