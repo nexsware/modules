@@ -26,8 +26,13 @@ on:
         default: '10.0'
 
       # Docker Configuration
+      docker_context:
+        description: 'Docker build context directory (relative to repo root)'
+        required: false
+        type: string
+        default: '.'
       dockerfile_path:
-        description: 'Path to Dockerfile (relative to app_directory)'
+        description: 'Path to Dockerfile (relative to repo root)'
         required: false
         type: string
         default: 'Dockerfile'
@@ -176,8 +181,8 @@ jobs:
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
-          context: ${{ inputs.app_directory }}
-          file: ${{ inputs.app_directory }}/${{ inputs.dockerfile_path }}
+          context: ${{ inputs.docker_context }}
+          file: ${{ inputs.dockerfile_path }}
           push: ${{ inputs.push_image }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
