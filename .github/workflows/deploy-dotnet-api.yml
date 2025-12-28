@@ -258,7 +258,7 @@ jobs:
           # Add ASPNETCORE_ENVIRONMENT
           ENV_FLAGS="$ENV_FLAGS -e ASPNETCORE_ENVIRONMENT=${{ inputs.environment }}"
 
-          ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << 'ENDSSH'
+          ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << ENDSSH
           set -e
 
           # Install Docker if not already installed (Ubuntu 24.04)
