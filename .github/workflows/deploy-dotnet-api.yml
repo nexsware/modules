@@ -1,0 +1,344 @@
+name: Deploy .NET API Container (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      # Application Configuration
+      application_name:
+        description: 'Application name (used for container naming)'
+        required: true
+        type: string
+      environment:
+        description: 'Deployment environment (test, prod)'
+        required: true
+        type: string
+      app_directory:
+        description: 'Directory containing the application code (relative to repo root)'
+        required: false
+        type: string
+        default: '.'
+
+      # .NET Configuration
+      dotnet_version:
+        description: '.NET SDK version to use'
+        required: false
+        type: string
+        default: '10.0'
+
+      # Docker Configuration
+      dockerfile_path:
+        description: 'Path to Dockerfile (relative to app_directory)'
+        required: false
+        type: string
+        default: 'Dockerfile'
+      image_name:
+        description: 'Docker image name (if different from application_name)'
+        required: false
+        type: string
+        default: ''
+
+      # Build Configuration
+      build_configuration:
+        description: 'Build configuration (Release or Debug)'
+        required: false
+        type: string
+        default: 'Release'
+      run_tests:
+        description: 'Whether to run tests before building'
+        required: false
+        type: boolean
+        default: false
+      push_image:
+        description: 'Whether to push the image to registry'
+        required: false
+        type: boolean
+        default: true
+
+      # Deployment Configuration
+      enable_deploy:
+        description: 'Whether to deploy to server after build'
+        required: false
+        type: boolean
+        default: true
+      server_ip:
+        description: 'Server IP address to deploy to'
+        required: false
+        type: string
+        default: ''
+      container_port:
+        description: 'Port the container exposes'
+        required: false
+        type: string
+        default: '8080'
+      host_port:
+        description: 'Port to bind on host (leave empty to use container_port)'
+        required: false
+        type: string
+        default: ''
+      container_name:
+        description: 'Container name (defaults to application_name-environment)'
+        required: false
+        type: string
+        default: ''
+
+      # Environment Variables
+      env_vars:
+        description: 'JSON object of environment variables to pass to container'
+        required: false
+        type: string
+        default: '{}'
+
+    secrets:
+      # Server Access Secrets
+      SSH_PRIVATE_KEY:
+        description: 'SSH private key for server access'
+        required: false
+      ROOT_PASS:
+        description: 'Root password for server (if not using SSH key)'
+        required: false
+
+      # Application Secrets (passed as env vars to container)
+      DATABASE_PASSWORD:
+        description: 'Database password (deprecated - use CONNECTION_STRING_NEXSWARE instead)'
+        required: false
+      CONNECTION_STRING_NEXSWARE:
+        description: 'Database connection string (mapped to ConnectionStrings__nexsware)'
+        required: false
+      CONNECTION_STRING:
+        description: 'Generic database connection string'
+        required: false
+      API_KEY:
+        description: 'API key or other secrets'
+        required: false
+
+    outputs:
+      image_tag:
+        description: 'The Docker image tag that was built'
+        value: ${{ jobs.build.outputs.image_tag }}
+      deployment_status:
+        description: 'Deployment status'
+        value: ${{ jobs.deploy.outputs.status }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet_version }}
+
+      - name: Restore Dependencies
+        working-directory: ${{ inputs.app_directory }}
+        run: dotnet restore
+
+      - name: Build Application
+        working-directory: ${{ inputs.app_directory }}
+        run: dotnet build --configuration ${{ inputs.build_configuration }} --no-restore
+
+      - name: Run Tests
+        if: ${{ inputs.run_tests }}
+        working-directory: ${{ inputs.app_directory }}
+        run: dotnet test --configuration ${{ inputs.build_configuration }} --no-build --verbosity normal
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ inputs.push_image }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name != '' && inputs.image_name || inputs.application_name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=${{ inputs.environment }}
+            type=raw,value=latest,enable=${{ inputs.environment == 'prod' }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.app_directory }}
+          file: ${{ inputs.app_directory }}/${{ inputs.dockerfile_path }}
+          push: ${{ inputs.push_image }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_CONFIGURATION=${{ inputs.build_configuration }}
+
+      - name: Image Build Summary
+        run: |
+          echo "## Docker Image Built Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ inputs.enable_deploy && inputs.server_ip != '' }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      status: ${{ steps.deploy-container.outputs.status }}
+
+    steps:
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          cat > ~/.ssh/deploy_key << 'EOF'
+          ${{ secrets.SSH_PRIVATE_KEY }}
+          EOF
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ inputs.server_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy Container to Server
+        id: deploy-container
+        run: |
+          SERVER_IP="${{ inputs.server_ip }}"
+          CONTAINER_NAME="${{ inputs.container_name != '' && inputs.container_name || format('{0}-{1}', inputs.application_name, inputs.environment) }}"
+          IMAGE_TAG="ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name != '' && inputs.image_name || inputs.application_name }}:${{ inputs.environment }}"
+          CONTAINER_PORT="${{ inputs.container_port }}"
+          HOST_PORT="${{ inputs.host_port != '' && inputs.host_port || inputs.container_port }}"
+
+          echo "Deploying to server: $SERVER_IP (Ubuntu 24.04)"
+          echo "Container name: $CONTAINER_NAME"
+          echo "Image: $IMAGE_TAG"
+          echo "Port mapping: $HOST_PORT:$CONTAINER_PORT"
+
+          # Parse environment variables from JSON
+          ENV_VARS='${{ inputs.env_vars }}'
+
+          # Create environment variables string for docker run
+          ENV_FLAGS=""
+          if [ "$ENV_VARS" != "{}" ]; then
+            ENV_FLAGS=$(echo "$ENV_VARS" | jq -r 'to_entries | map("-e \(.key)=\(.value)") | join(" ")')
+          fi
+
+          # Add secrets as environment variables if provided
+          if [ -n "${{ secrets.CONNECTION_STRING_NEXSWARE }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e ConnectionStrings__nexsware='${{ secrets.CONNECTION_STRING_NEXSWARE }}'"
+          fi
+          if [ -n "${{ secrets.CONNECTION_STRING }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e CONNECTION_STRING='${{ secrets.CONNECTION_STRING }}'"
+          fi
+          if [ -n "${{ secrets.DATABASE_PASSWORD }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e DATABASE_PASSWORD='${{ secrets.DATABASE_PASSWORD }}'"
+          fi
+          if [ -n "${{ secrets.API_KEY }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e API_KEY='${{ secrets.API_KEY }}'"
+          fi
+
+          # Add ASPNETCORE_ENVIRONMENT
+          ENV_FLAGS="$ENV_FLAGS -e ASPNETCORE_ENVIRONMENT=${{ inputs.environment }}"
+
+          ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << 'ENDSSH'
+          set -e
+
+          # Install Docker if not already installed (Ubuntu 24.04)
+          if ! command -v docker &> /dev/null; then
+            echo "Docker not found. Installing Docker on Ubuntu 24.04..."
+
+            # Update package index
+            apt-get update
+
+            # Install prerequisites
+            apt-get install -y ca-certificates curl
+
+            # Add Docker's official GPG key
+            install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+            chmod a+r /etc/apt/keyrings/docker.asc
+
+            # Add Docker repository
+            echo \
+              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+              $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+              tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+            # Install Docker
+            apt-get update
+            apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+            # Start and enable Docker
+            systemctl enable docker
+            systemctl start docker
+
+            echo "✓ Docker installed successfully"
+            docker --version
+          else
+            echo "✓ Docker is already installed"
+            docker --version
+          fi
+
+          echo "Logging in to GitHub Container Registry..."
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+          echo "Pulling latest image..."
+          docker pull ${IMAGE_TAG}
+
+          echo "Stopping existing container (if any)..."
+          docker stop ${CONTAINER_NAME} 2>/dev/null || true
+          docker rm ${CONTAINER_NAME} 2>/dev/null || true
+
+          echo "Starting new container..."
+          docker run -d \
+            --name ${CONTAINER_NAME} \
+            --restart unless-stopped \
+            -p ${HOST_PORT}:${CONTAINER_PORT} \
+            ${ENV_FLAGS} \
+            ${IMAGE_TAG}
+
+          echo "Verifying container is running..."
+          sleep 5
+          if docker ps | grep -q ${CONTAINER_NAME}; then
+            echo "✓ Container ${CONTAINER_NAME} is running successfully"
+            docker ps | grep ${CONTAINER_NAME}
+
+            # Show container logs (last 20 lines)
+            echo ""
+            echo "Container logs:"
+            docker logs ${CONTAINER_NAME} --tail 20
+          else
+            echo "✗ Container failed to start"
+            docker logs ${CONTAINER_NAME}
+            exit 1
+          fi
+          ENDSSH
+
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Cleanup SSH Key
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
+
+      - name: Deployment Summary
+        run: |
+          echo "## Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Server:** ${{ inputs.server_ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Container:** ${{ inputs.container_name != '' && inputs.container_name || format('{0}-{1}', inputs.application_name, inputs.environment) }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Port:** ${{ inputs.host_port != '' && inputs.host_port || inputs.container_port }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
