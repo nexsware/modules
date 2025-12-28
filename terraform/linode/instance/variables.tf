@@ -63,7 +63,8 @@ variable "stackscript_data" {
 
 variable "stackscript_id" {
   type        = number
-  description = "The StackScript ID to use for provisioning the Linode instance."
+  description = "The StackScript ID to use for provisioning the Linode instance (only required if install_nginx is true)"
+  default     = null
 }
 
 

@@ -55,9 +55,10 @@ on:
         type: string
         default: ''
       stackscript_id:
-        description: 'Linode StackScript ID to use for provisioning'
-        required: true
+        description: 'Linode StackScript ID to use for provisioning (only required if install_nginx is true)'
+        required: false
         type: string
+        default: ''
     secrets:
       LINODE_TOKEN:
         description: 'Linode API Token'
@@ -114,7 +115,7 @@ jobs:
           install_nginx = ${{ inputs.install_nginx }}
           server_name = "${{ inputs.server_name }}"
           domains_containers = "${{ inputs.domains_containers }}"
-          stackscript_id = "${{ inputs.stackscript_id }}"
+          $(if [ -n "${{ inputs.stackscript_id }}" ]; then echo "stackscript_id = ${{ inputs.stackscript_id }}"; fi)
           EOF
 
       - name: Terraform Init
