@@ -55,12 +55,6 @@ variable "authorized_keys" {
   default     = []
 }
 
-variable "stackscript_data" {
-  type        = map(string)
-  description = "The StackScript data to be used for provisioning"
-  default     = {}
-}
-
 variable "stackscript_id" {
   type        = number
   description = "The StackScript ID to use for provisioning the Linode instance (only required if install_nginx is true)"
