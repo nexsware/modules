@@ -1,6 +1,16 @@
 
 #!/bin/bash
+# <UDF name="install_nginx" label="Whether to install and configure nginx" default="true">
 # <UDF name="domains_containers" label="JSON array of domain-to-container mappings" default='[{"domain":"example.com","container":"localhost:3000"}]'>
+# <UDF name="server_name" label="Domain name for nginx server_name" default="">
+
+# Check if nginx installation is requested
+INSTALL_NGINX=${INSTALL_NGINX:-$install_nginx}
+if [ "$INSTALL_NGINX" != "true" ]; then
+    echo "Nginx installation skipped (install_nginx=false)"
+    echo "This instance is configured for internal use only"
+    exit 0
+fi
 
 # Install dependencies
 apt-get update

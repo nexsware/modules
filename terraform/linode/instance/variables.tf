@@ -1,6 +1,19 @@
+variable "install_nginx" {
+  type        = bool
+  description = "Whether to install and configure nginx (set false for internal-only instances)"
+  default     = true
+}
+
 variable "server_name" {
   type        = string
-  description = "The domain name for the nginx server_name directive (e.g., nexsware.com)"
+  description = "The domain name for the nginx server_name directive (e.g., nexsware.com) - only required if install_nginx is true"
+  default     = ""
+}
+
+variable "domains_containers" {
+  type        = string
+  description = "JSON array of domain-to-container mappings for nginx reverse proxy - only required if install_nginx is true"
+  default     = ""
 }
 variable "label" {
   type        = string

@@ -39,14 +39,21 @@ on:
         required: false
         type: string
         default: 'modules/terraform/linode/instance'
+      install_nginx:
+        description: 'Whether to install and configure nginx (set false for internal-only instances)'
+        required: false
+        type: boolean
+        default: true
       server_name:
-        description: 'Domain name for nginx server_name'
-        required: true
+        description: 'Domain name for nginx server_name (only required if install_nginx is true)'
+        required: false
         type: string
+        default: ''
       domains_containers:
-        description: 'JSON array of domain-to-container mappings for nginx reverse proxy'
-        required: true
+        description: 'JSON array of domain-to-container mappings for nginx reverse proxy (only required if install_nginx is true)'
+        required: false
         type: string
+        default: ''
       stackscript_id:
         description: 'Linode StackScript ID to use for provisioning'
         required: true
@@ -102,11 +109,12 @@ jobs:
           root_pass = "${{ secrets.ROOT_PASS }}"
           authorized_keys = [$(if [ -n "${{ secrets.SSH_PUBLIC_KEY }}" ]; then echo '"${{ secrets.SSH_PUBLIC_KEY }}"'; fi)]
           tags = [$(if [ -n "${{ inputs.environment }}" ]; then echo '"${{ inputs.environment }}"'; fi)]
-            vpc_id = "${{ inputs.vpc_id }}"
-            subnet_id = "${{ inputs.subnet_id }}"
-            server_name = "${{ inputs.server_name }}"
-              domains_containers = "${{ inputs.domains_containers }}"
-            stackscript_id = "${{ inputs.stackscript_id }}"
+          vpc_id = "${{ inputs.vpc_id }}"
+          subnet_id = "${{ inputs.subnet_id }}"
+          install_nginx = ${{ inputs.install_nginx }}
+          server_name = "${{ inputs.server_name }}"
+          domains_containers = "${{ inputs.domains_containers }}"
+          stackscript_id = "${{ inputs.stackscript_id }}"
           EOF
 
       - name: Terraform Init

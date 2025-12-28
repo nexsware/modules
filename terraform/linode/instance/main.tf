@@ -14,7 +14,9 @@ resource "linode_instance" "this" {
   private_ip      = var.private_ip
   stackscript_id  = var.stackscript_id
   stackscript_data = {
-    server_name = var.server_name
+    install_nginx       = var.install_nginx ? "true" : "false"
+    server_name         = var.server_name
+    domains_containers  = var.domains_containers
   }
 
 
