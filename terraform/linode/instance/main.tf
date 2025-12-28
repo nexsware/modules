@@ -12,20 +12,12 @@ resource "linode_instance" "this" {
   authorized_keys = var.authorized_keys
   tags            = var.tags
   private_ip      = var.private_ip
-  stackscript_id  = var.stackscript_id != null ? var.stackscript_id : null
+  stackscript_id  = var.install_nginx && var.stackscript_id != null ? var.stackscript_id : null
 
-  # Only include stackscript_data if stackscript_id is provided
-  stackscript_data = var.stackscript_id != null ? merge(
-    {
-      install_nginx = var.install_nginx ? "true" : "false"
-    },
-    var.install_nginx && var.server_name != "" ? {
-      server_name = var.server_name
-    } : {},
-    var.install_nginx && var.domains_containers != "" ? {
-      domains_containers = var.domains_containers
-    } : {}
-  ) : {}
+  # Only include stackscript_data if stackscript_id is provided and nginx is being installed
+  stackscript_data = var.install_nginx && var.stackscript_id != null && var.domains_containers != "" ? {
+    domains_containers = var.domains_containers
+  } : {}
 
 
   # Optionally create a public interface
