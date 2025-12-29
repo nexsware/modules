@@ -42,16 +42,6 @@ on:
         required: false
         type: string
         default: 'root'
-      app_user:
-        description: 'Application database user to create'
-        required: false
-        type: string
-        default: ''
-      create_enquiries_schema:
-        description: 'Whether to create enquiries schema'
-        required: false
-        type: boolean
-        default: false
     secrets:
       SSH_PRIVATE_KEY:
         description: 'SSH private key for server access'
@@ -59,9 +49,6 @@ on:
       POSTGRES_PASSWORD:
         description: 'PostgreSQL password'
         required: true
-      APP_USER_PASSWORD:
-        description: 'Application user password (required if app_user is set)'
-        required: false
     outputs:
       postgres_host:
         description: 'PostgreSQL host (VPC IP or server IP)'
@@ -154,44 +141,6 @@ jobs:
             echo "PostgreSQL container failed to start"
             docker logs ${{ inputs.container_name }}
             exit 1
-          fi
-
-          # Create application user if specified
-          if [ -n "${{ inputs.app_user }}" ]; then
-            echo "Creating application user: ${{ inputs.app_user }}..."
-            docker exec ${{ inputs.container_name }} psql -U ${{ inputs.postgres_user }} -d ${{ inputs.postgres_db }} << 'EOSQL'
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_user WHERE usename = '${{ inputs.app_user }}') THEN
-    CREATE USER "${{ inputs.app_user }}" WITH PASSWORD '${{ secrets.APP_USER_PASSWORD }}';
-  END IF;
-END
-$$;
-
-GRANT ALL PRIVILEGES ON DATABASE ${{ inputs.postgres_db }} TO "${{ inputs.app_user }}";
-GRANT ALL ON SCHEMA public TO "${{ inputs.app_user }}";
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "${{ inputs.app_user }}";
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "${{ inputs.app_user }}";
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO "${{ inputs.app_user }}";
-EOSQL
-            echo "✓ Application user created successfully"
-          fi
-
-          # Create enquiries schema if requested
-          if [ "${{ inputs.create_enquiries_schema }}" = "true" ]; then
-            echo "Creating enquiries schema..."
-            APP_USER_FOR_SCHEMA="${{ inputs.app_user }}"
-            if [ -z "$APP_USER_FOR_SCHEMA" ]; then
-              APP_USER_FOR_SCHEMA="${{ inputs.postgres_user }}"
-            fi
-            docker exec ${{ inputs.container_name }} psql -U ${{ inputs.postgres_user }} -d ${{ inputs.postgres_db }} << EOSQL
-CREATE SCHEMA IF NOT EXISTS enquiries AUTHORIZATION "$APP_USER_FOR_SCHEMA";
-GRANT ALL ON SCHEMA enquiries TO "$APP_USER_FOR_SCHEMA";
-ALTER DEFAULT PRIVILEGES IN SCHEMA enquiries GRANT ALL ON TABLES TO "$APP_USER_FOR_SCHEMA";
-ALTER DEFAULT PRIVILEGES IN SCHEMA enquiries GRANT ALL ON SEQUENCES TO "$APP_USER_FOR_SCHEMA";
-ALTER DEFAULT PRIVILEGES IN SCHEMA enquiries GRANT ALL ON FUNCTIONS TO "$APP_USER_FOR_SCHEMA";
-EOSQL
-            echo "✓ Enquiries schema created successfully"
           fi
 
           # Output connection details
