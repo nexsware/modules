@@ -104,10 +104,13 @@ on:
 
       # Application Secrets (passed as env vars to container)
       DATABASE_PASSWORD:
-        description: 'Database password (deprecated - use CONNECTION_STRING_NEXSWARE instead)'
+        description: 'Database password (deprecated - use CONNECTIONSTRINGS__NEXSWARE instead)'
+        required: false
+      CONNECTIONSTRINGS__NEXSWARE:
+        description: 'Database connection string (mapped to ConnectionStrings__nexsware)'
         required: false
       CONNECTION_STRING_NEXSWARE:
-        description: 'Database connection string (mapped to ConnectionStrings__nexsware)'
+        description: 'Database connection string (legacy, use CONNECTIONSTRINGS__NEXSWARE)'
         required: false
       CONNECTION_STRING:
         description: 'Generic database connection string'
@@ -242,7 +245,10 @@ jobs:
           fi
 
           # Add secrets as environment variables if provided
-          if [ -n "${{ secrets.CONNECTION_STRING_NEXSWARE }}" ]; then
+          # Support both CONNECTIONSTRINGS__NEXSWARE (new) and CONNECTION_STRING_NEXSWARE (legacy)
+          if [ -n "${{ secrets.CONNECTIONSTRINGS__NEXSWARE }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e ConnectionStrings__nexsware='${{ secrets.CONNECTIONSTRINGS__NEXSWARE }}'"
+          elif [ -n "${{ secrets.CONNECTION_STRING_NEXSWARE }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e ConnectionStrings__nexsware='${{ secrets.CONNECTION_STRING_NEXSWARE }}'"
           fi
           if [ -n "${{ secrets.CONNECTION_STRING }}" ]; then
