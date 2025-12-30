@@ -94,28 +94,36 @@ jobs:
             BIND_IP="0.0.0.0"
           fi
 
-          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "BIND_IP=${BIND_IP}" bash << EOF
+          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} bash -s "${BIND_IP}" "${{ inputs.postgres_version }}" "${{ inputs.data_volume }}" "${{ inputs.container_name }}" "${{ inputs.postgres_user }}" "${{ secrets.POSTGRES_PASSWORD }}" "${{ inputs.postgres_db }}" << 'REMOTE'
+          BIND_IP="$1"
+          PG_VERSION="$2"
+          DATA_VOLUME="$3"
+          CONTAINER_NAME="$4"
+          PG_USER="$5"
+          PG_PASSWORD="$6"
+          PG_DB="$7"
+
           mkdir -p ~/postgres
           cd ~/postgres
 
           # Determine the correct mount path based on PostgreSQL version
-          PG_VERSION=${{ inputs.postgres_version }}
-          if [ "${PG_VERSION%%.*}" -ge 18 ]; then
-            VOLUME_MOUNT="${{ inputs.data_volume }}:/var/lib/postgresql"
+          PG_MAJOR=${PG_VERSION%%.*}
+          if [ "$PG_MAJOR" -ge 18 ]; then
+            VOLUME_MOUNT="${DATA_VOLUME}:/var/lib/postgresql"
           else
-            VOLUME_MOUNT="${{ inputs.data_volume }}:/var/lib/postgresql/data"
+            VOLUME_MOUNT="${DATA_VOLUME}:/var/lib/postgresql/data"
           fi
 
           cat > docker-compose.yml << COMPOSE
           services:
             postgres:
-              image: postgres:${{ inputs.postgres_version }}
-              container_name: ${{ inputs.container_name }}
+              image: postgres:${PG_VERSION}
+              container_name: ${CONTAINER_NAME}
               restart: unless-stopped
               environment:
-                POSTGRES_USER: ${{ inputs.postgres_user }}
-                POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-                POSTGRES_DB: ${{ inputs.postgres_db }}
+                POSTGRES_USER: ${PG_USER}
+                POSTGRES_PASSWORD: ${PG_PASSWORD}
+                POSTGRES_DB: ${PG_DB}
               ports:
                 - "${BIND_IP}:5432:5432"
               volumes:
@@ -126,11 +134,11 @@ jobs:
             internal:
               driver: bridge
           volumes:
-            ${{ inputs.data_volume }}:
+            ${DATA_VOLUME}:
               driver: local
           COMPOSE
           docker compose up -d
-          EOF
+          REMOTE
 
       - name: Display Connection Information
         run: |
