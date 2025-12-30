@@ -85,6 +85,7 @@ networks:
     driver: bridge
 volumes:
   ${{ inputs.data_volume }}:
+    driver: local
 DOCKERCOMPOSE
           docker compose up -d
           ENDSSH
