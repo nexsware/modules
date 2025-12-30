@@ -94,7 +94,10 @@ jobs:
             BIND_IP="0.0.0.0"
           fi
 
-          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "mkdir -p ~/postgres && cd ~/postgres && cat > docker-compose.yml" << 'EOF'
+          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "BIND_IP=${BIND_IP}" bash << 'EOF'
+          mkdir -p ~/postgres
+          cd ~/postgres
+          cat > docker-compose.yml << COMPOSE
           services:
             postgres:
               image: postgres:${{ inputs.postgres_version }}
@@ -116,9 +119,9 @@ jobs:
           volumes:
             ${{ inputs.data_volume }}:
               driver: local
+          COMPOSE
+          docker compose up -d
           EOF
-
-          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "cd ~/postgres && docker compose up -d"
 
       - name: Display Connection Information
         run: |
