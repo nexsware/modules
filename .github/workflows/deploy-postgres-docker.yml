@@ -97,6 +97,15 @@ jobs:
           ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "BIND_IP=${BIND_IP}" bash << 'EOF'
           mkdir -p ~/postgres
           cd ~/postgres
+
+          # Determine the correct mount path based on PostgreSQL version
+          PG_VERSION=${{ inputs.postgres_version }}
+          if [ "${PG_VERSION%%.*}" -ge 18 ]; then
+            VOLUME_MOUNT="${{ inputs.data_volume }}:/var/lib/postgresql"
+          else
+            VOLUME_MOUNT="${{ inputs.data_volume }}:/var/lib/postgresql/data"
+          fi
+
           cat > docker-compose.yml << COMPOSE
           services:
             postgres:
@@ -110,7 +119,7 @@ jobs:
               ports:
                 - "${BIND_IP}:5432:5432"
               volumes:
-                - ${{ inputs.data_volume }}:/var/lib/postgresql/data
+                - ${VOLUME_MOUNT}
               networks:
                 - internal
           networks:
