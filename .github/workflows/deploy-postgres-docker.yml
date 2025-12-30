@@ -55,37 +55,34 @@ jobs:
     steps:
       - name: Deploy PostgreSQL Container
         run: |
-          ssh ${{ inputs.ssh_user }}@${{ inputs.server_ip }} << 'ENDSSH'
-          set -e
           if [ -n "${{ inputs.vpc_ip }}" ]; then
             BIND_IP="${{ inputs.vpc_ip }}"
           else
             BIND_IP="0.0.0.0"
           fi
-          mkdir -p ~/postgres
-          cd ~/postgres
-          cat > docker-compose.yml <<'DOCKERCOMPOSE'
-services:
-  postgres:
-    image: postgres:${{ inputs.postgres_version }}
-    container_name: ${{ inputs.container_name }}
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${{ inputs.postgres_user }}
-      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-      POSTGRES_DB: ${{ inputs.postgres_db }}
-    ports:
-      - "${BIND_IP}:5432:5432"
-    volumes:
-      - ${{ inputs.data_volume }}:/var/lib/postgresql/data
-    networks:
-      - internal
-networks:
-  internal:
-    driver: bridge
-volumes:
-  ${{ inputs.data_volume }}:
-    driver: local
-DOCKERCOMPOSE
-          docker compose up -d
-          ENDSSH
+
+          ssh ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "mkdir -p ~/postgres && cd ~/postgres && cat > docker-compose.yml" << 'EOF'
+          services:
+            postgres:
+              image: postgres:${{ inputs.postgres_version }}
+              container_name: ${{ inputs.container_name }}
+              restart: unless-stopped
+              environment:
+                POSTGRES_USER: ${{ inputs.postgres_user }}
+                POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+                POSTGRES_DB: ${{ inputs.postgres_db }}
+              ports:
+                - "${BIND_IP}:5432:5432"
+              volumes:
+                - ${{ inputs.data_volume }}:/var/lib/postgresql/data
+              networks:
+                - internal
+          networks:
+            internal:
+              driver: bridge
+          volumes:
+            ${{ inputs.data_volume }}:
+              driver: local
+          EOF
+
+          ssh ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "cd ~/postgres && docker compose up -d"
