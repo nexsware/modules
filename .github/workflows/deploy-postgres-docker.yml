@@ -94,7 +94,7 @@ jobs:
             BIND_IP="0.0.0.0"
           fi
 
-          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "BIND_IP=${BIND_IP}" bash << 'EOF'
+          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "BIND_IP=${BIND_IP}" bash << EOF
           mkdir -p ~/postgres
           cd ~/postgres
 
