@@ -44,11 +44,11 @@ on:
         default: 'root'
     secrets:
       SSH_PRIVATE_KEY:
-        description: 'SSH private key for server access'
-        required: true
+        description: 'SSH private key for server access (use secrets: inherit in calling workflow)'
+        required: false
       POSTGRES_PASSWORD:
-        description: 'PostgreSQL password'
-        required: true
+        description: 'PostgreSQL password (use secrets: inherit in calling workflow)'
+        required: false
 jobs:
   deploy-postgres:
     runs-on: ubuntu-latest
