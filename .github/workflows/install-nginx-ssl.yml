@@ -1,0 +1,231 @@
+name: Install Nginx and SSL (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      server_ip:
+        description: 'Server IP address where nginx will be installed'
+        required: true
+        type: string
+      domains_containers:
+        description: 'JSON array of domain-to-container mappings for nginx reverse proxy (e.g., [{"domain":"example.com","container":"localhost:3000"}])'
+        required: true
+        type: string
+      install_ssl:
+        description: 'Whether to install SSL certificates using certbot'
+        required: false
+        type: boolean
+        default: true
+      certbot_email:
+        description: 'Email for Let''s Encrypt notifications (required if install_ssl is true)'
+        required: false
+        type: string
+        default: ''
+      ssh_user:
+        description: 'SSH user for server access'
+        required: false
+        type: string
+        default: 'root'
+      environment:
+        description: 'Deployment environment'
+        required: false
+        type: string
+        default: 'production'
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: 'SSH private key for server access'
+        required: true
+    outputs:
+      nginx_status:
+        description: 'Status of nginx installation'
+        value: ${{ jobs.install-nginx.outputs.nginx_status }}
+      ssl_status:
+        description: 'Status of SSL installation'
+        value: ${{ jobs.install-nginx.outputs.ssl_status }}
+
+jobs:
+  install-nginx:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      nginx_status: ${{ steps.install.outputs.nginx_status }}
+      ssl_status: ${{ steps.install.outputs.ssl_status }}
+
+    steps:
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' '${{ secrets.SSH_PRIVATE_KEY }}' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ inputs.server_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Install Nginx and Configure Reverse Proxy
+        id: install
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} << 'ENDSSH'
+          set -e
+
+          echo "=== Installing Nginx and Dependencies ==="
+          apt-get update
+          apt-get install -y nginx jq
+
+          # Install certbot if SSL is requested
+          if [ "${{ inputs.install_ssl }}" = "true" ]; then
+            apt-get install -y certbot python3-certbot-nginx
+            echo "Certbot installed for SSL support"
+          fi
+
+          echo "=== Configuring Nginx Reverse Proxy ==="
+
+          # Parse the JSON array of domain-to-container mappings
+          DOMAINS_CONTAINERS='${{ inputs.domains_containers }}'
+
+          if [ -z "$DOMAINS_CONTAINERS" ]; then
+            echo "Error: No domain-to-container mappings provided"
+            exit 1
+          fi
+
+          # Count number of domains
+          COUNT=$(echo "$DOMAINS_CONTAINERS" | jq length)
+          echo "Configuring $COUNT domain(s)..."
+
+          # Create nginx configuration for each domain
+          for i in $(seq 0 $((COUNT-1))); do
+            DOMAIN=$(echo "$DOMAINS_CONTAINERS" | jq -r ".[$i].domain")
+            CONTAINER=$(echo "$DOMAINS_CONTAINERS" | jq -r ".[$i].container")
+
+            echo "Setting up reverse proxy for $DOMAIN -> $CONTAINER"
+
+            # Create HTTP-only configuration
+            cat > /etc/nginx/sites-available/$DOMAIN <<EOF
+          server {
+              listen 80;
+              server_name $DOMAIN www.$DOMAIN;
+
+              location / {
+                  proxy_pass http://$CONTAINER;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade \$http_upgrade;
+                  proxy_set_header Connection 'upgrade';
+                  proxy_set_header Host \$host;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+                  proxy_cache_bypass \$http_upgrade;
+              }
+          }
+          EOF
+
+            # Enable the site
+            ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/$DOMAIN
+            echo "✓ Configuration created for $DOMAIN"
+          done
+
+          # Remove default site
+          rm -f /etc/nginx/sites-enabled/default
+          echo "✓ Default site removed"
+
+          # Test and start nginx
+          echo "Testing nginx configuration..."
+          if nginx -t; then
+            echo "✓ Nginx configuration is valid"
+            systemctl restart nginx
+            systemctl enable nginx
+            echo "✓ Nginx started and enabled"
+            echo "nginx_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "✗ Nginx configuration test failed"
+            echo "nginx_status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Install SSL certificates if requested
+          if [ "${{ inputs.install_ssl }}" = "true" ]; then
+            echo "=== Installing SSL Certificates ==="
+
+            SSL_SUCCESS=true
+            for i in $(seq 0 $((COUNT-1))); do
+              DOMAIN=$(echo "$DOMAINS_CONTAINERS" | jq -r ".[$i].domain")
+
+              echo "Attempting to obtain SSL certificate for $DOMAIN..."
+
+              # Use provided email or default to admin@domain
+              EMAIL="${{ inputs.certbot_email }}"
+              if [ -z "$EMAIL" ]; then
+                EMAIL="admin@$DOMAIN"
+              fi
+
+              # Certbot will automatically modify the nginx config to add SSL
+              if certbot --nginx -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos -m $EMAIL --redirect; then
+                echo "✓ SSL certificate obtained successfully for $DOMAIN"
+              else
+                echo "✗ Failed to obtain SSL certificate for $DOMAIN - site will remain HTTP-only"
+                SSL_SUCCESS=false
+              fi
+            done
+
+            # Reload nginx to apply SSL configurations
+            systemctl reload nginx
+
+            if [ "$SSL_SUCCESS" = "true" ]; then
+              echo "ssl_status=success" >> $GITHUB_OUTPUT
+              echo "✓ All SSL certificates installed successfully"
+            else
+              echo "ssl_status=partial" >> $GITHUB_OUTPUT
+              echo "⚠ Some SSL certificates failed to install"
+            fi
+          else
+            echo "ssl_status=skipped" >> $GITHUB_OUTPUT
+            echo "SSL installation skipped"
+          fi
+
+          echo "=== Nginx and SSL Installation Complete ==="
+          ENDSSH
+
+      - name: Verify Nginx is Running
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} << 'ENDSSH'
+          echo "=== Nginx Status ==="
+          systemctl status nginx --no-pager
+
+          echo ""
+          echo "=== Active Nginx Configurations ==="
+          ls -la /etc/nginx/sites-enabled/
+          ENDSSH
+
+      - name: Test HTTP Endpoints
+        if: success()
+        run: |
+          echo "Testing HTTP endpoints..."
+          DOMAINS_CONTAINERS='${{ inputs.domains_containers }}'
+          COUNT=$(echo "$DOMAINS_CONTAINERS" | jq length)
+
+          for i in $(seq 0 $((COUNT-1))); do
+            DOMAIN=$(echo "$DOMAINS_CONTAINERS" | jq -r ".[$i].domain")
+            echo "Testing http://$DOMAIN (should redirect to HTTPS if SSL is enabled)..."
+            curl -I "http://$DOMAIN" || echo "Note: Domain may not be DNS-resolvable yet"
+          done
+
+      - name: Display Configuration Summary
+        run: |
+          echo "========================================="
+          echo "Nginx Installation Complete!"
+          echo "========================================="
+          echo ""
+          echo "Configured Domains:"
+          DOMAINS_CONTAINERS='${{ inputs.domains_containers }}'
+          COUNT=$(echo "$DOMAINS_CONTAINERS" | jq length)
+          for i in $(seq 0 $((COUNT-1))); do
+            DOMAIN=$(echo "$DOMAINS_CONTAINERS" | jq -r ".[$i].domain")
+            CONTAINER=$(echo "$DOMAINS_CONTAINERS" | jq -r ".[$i].container")
+            echo "  - $DOMAIN -> $CONTAINER"
+          done
+          echo ""
+          echo "SSL Status: ${{ steps.install.outputs.ssl_status }}"
+          echo "Nginx Status: ${{ steps.install.outputs.nginx_status }}"
+          echo "========================================="
+
+      - name: Cleanup SSH Key
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
