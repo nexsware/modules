@@ -88,51 +88,37 @@ jobs:
 
       - name: Deploy PostgreSQL Container
         run: |
-          BIND_IP="${{ inputs.vpc_ip }}"
-          if [ -z "$BIND_IP" ]; then
+          if [ -n "${{ inputs.vpc_ip }}" ]; then
+            BIND_IP="${{ inputs.vpc_ip }}"
+          else
             BIND_IP="0.0.0.0"
           fi
 
-          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} bash -s "$BIND_IP" "${{ inputs.postgres_version }}" "${{ inputs.container_name }}" "${{ inputs.postgres_user }}" "${{ secrets.POSTGRES_PASSWORD }}" "${{ inputs.postgres_db }}" "${{ inputs.data_volume }}" << 'ENDSSH'
-          BIND_IP="$1"
-          POSTGRES_VERSION="$2"
-          CONTAINER_NAME="$3"
-          POSTGRES_USER="$4"
-          POSTGRES_PASSWORD="$5"
-          POSTGRES_DB="$6"
-          DATA_VOLUME="$7"
+          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "mkdir -p ~/postgres && cd ~/postgres && cat > docker-compose.yml" << 'EOF'
+          services:
+            postgres:
+              image: postgres:${{ inputs.postgres_version }}
+              container_name: ${{ inputs.container_name }}
+              restart: unless-stopped
+              environment:
+                POSTGRES_USER: ${{ inputs.postgres_user }}
+                POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+                POSTGRES_DB: ${{ inputs.postgres_db }}
+              ports:
+                - "${BIND_IP}:5432:5432"
+              volumes:
+                - ${{ inputs.data_volume }}:/var/lib/postgresql/data
+              networks:
+                - internal
+          networks:
+            internal:
+              driver: bridge
+          volumes:
+            ${{ inputs.data_volume }}:
+              driver: local
+          EOF
 
-          mkdir -p ~/postgres
-          cd ~/postgres
-
-          cat > docker-compose.yml << EOFDOCKER
-services:
-  postgres:
-    image: postgres:${POSTGRES_VERSION}
-    container_name: ${CONTAINER_NAME}
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "${BIND_IP}:5432:5432"
-    volumes:
-      - ${DATA_VOLUME}:/var/lib/postgresql/data
-    networks:
-      - internal
-networks:
-  internal:
-    driver: bridge
-volumes:
-  ${DATA_VOLUME}:
-    driver: local
-EOFDOCKER
-
-          echo "Created docker-compose.yml with BIND_IP=${BIND_IP}"
-          docker compose down 2>/dev/null || true
-          docker compose up -d
-          ENDSSH
+          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "cd ~/postgres && docker compose up -d"
 
       - name: Display Connection Information
         run: |
