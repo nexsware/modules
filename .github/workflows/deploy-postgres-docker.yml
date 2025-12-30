@@ -64,7 +64,7 @@ jobs:
           fi
           mkdir -p ~/postgres
           cd ~/postgres
-          cat > docker-compose.yml << 'DOCKERCOMPOSE'
+          cat > docker-compose.yml <<'DOCKERCOMPOSE'
 services:
   postgres:
     image: postgres:${{ inputs.postgres_version }}
