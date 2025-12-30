@@ -61,6 +61,31 @@ jobs:
           ssh-keyscan -H ${{ inputs.server_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
           echo "StrictHostKeyChecking no" >> ~/.ssh/config
 
+      - name: Check if Docker is installed
+        id: check-docker
+        run: |
+          if ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} "command -v docker" &> /dev/null; then
+            echo "docker_installed=true" >> $GITHUB_OUTPUT
+            echo "Docker is already installed on the server"
+          else
+            echo "docker_installed=false" >> $GITHUB_OUTPUT
+            echo "Docker is not installed on the server"
+          fi
+
+      - name: Install Docker on Server
+        if: steps.check-docker.outputs.docker_installed == 'false'
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ inputs.ssh_user }}@${{ inputs.server_ip }} bash << 'INSTALL_DOCKER'
+          echo "Installing Docker..."
+          curl -fsSL https://get.docker.com -o get-docker.sh
+          sh get-docker.sh
+          systemctl start docker
+          systemctl enable docker
+          rm -f get-docker.sh
+          echo "Docker installed successfully"
+          docker --version
+          INSTALL_DOCKER
+
       - name: Deploy PostgreSQL Container
         run: |
           if [ -n "${{ inputs.vpc_ip }}" ]; then
