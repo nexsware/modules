@@ -116,15 +116,29 @@ jobs:
       - name: Create Terraform Variables File
         working-directory: ${{ inputs.terraform_dir }}
         run: |
-          cat > terraform.tfvars <<'EOF'
+          # Build authorized_keys array
+          if [ -n "${{ secrets.SSH_PUBLIC_KEY }}" ]; then
+            AUTH_KEYS='["${{ secrets.SSH_PUBLIC_KEY }}"]'
+          else
+            AUTH_KEYS='[]'
+          fi
+
+          # Build tags array
+          if [ -n "${{ inputs.environment }}" ]; then
+            TAGS='["${{ inputs.environment }}"]'
+          else
+            TAGS='[]'
+          fi
+
+          cat > terraform.tfvars <<EOF
           linode_token = "${{ secrets.LINODE_TOKEN }}"
           region = "${{ inputs.region }}"
           type = "${{ inputs.instance_type }}"
           image = "${{ inputs.image }}"
           label = "${{ inputs.environment }}-${{ inputs.application_name }}"
           root_pass = "${{ secrets.ROOT_PASS }}"
-          authorized_keys = [$(if [ -n "${{ secrets.SSH_PUBLIC_KEY }}" ]; then echo '"${{ secrets.SSH_PUBLIC_KEY }}"'; fi)]
-          tags = [$(if [ -n "${{ inputs.environment }}" ]; then echo '"${{ inputs.environment }}"'; fi)]
+          authorized_keys = ${AUTH_KEYS}
+          tags = ${TAGS}
           vpc_id = "${{ inputs.vpc_id }}"
           subnet_id = "${{ inputs.subnet_id }}"
           install_nginx = ${{ inputs.install_nginx }}
