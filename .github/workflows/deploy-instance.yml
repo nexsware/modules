@@ -54,6 +54,11 @@ on:
         required: false
         type: string
         default: ''
+      api_proxies:
+        description: 'API proxy mappings for nginx (e.g., "nexsware.com:/api/:http://10.0.0.3:8080")'
+        required: false
+        type: string
+        default: ''
       stackscript_id:
         description: 'Linode StackScript ID to use for provisioning (only required if install_nginx is true)'
         required: false
@@ -158,6 +163,11 @@ jobs:
             echo 'domains_containers = "${{ inputs.domains_containers }}"' >> terraform.tfvars
             echo 'certbot_email = "${{ inputs.certbot_email }}"' >> terraform.tfvars
             echo 'install_ssl = ${{ inputs.install_ssl }}' >> terraform.tfvars
+
+            # Add api_proxies if provided
+            if [ -n "${{ inputs.api_proxies }}" ]; then
+              echo 'api_proxies = "${{ inputs.api_proxies }}"' >> terraform.tfvars
+            fi
 
             # Add stackscript_id only if it's provided (not 0)
             if [ "${{ inputs.stackscript_id }}" != "0" ]; then

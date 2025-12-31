@@ -27,6 +27,13 @@ variable "install_ssl" {
   description = "Whether to install SSL certificates using Let's Encrypt"
   default     = true
 }
+
+variable "api_proxies" {
+  type        = string
+  description = "API proxy mappings for nginx (format: domain:/path/:backend_url)"
+  default     = ""
+}
+
 variable "label" {
   type        = string
   description = "The label for the Linode instance"
