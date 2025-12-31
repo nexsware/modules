@@ -3,24 +3,25 @@ name: Deploy Linode Firewall (Reusable)
 on:
   workflow_call:
     inputs:
-      instance_id:
-        description: 'Linode Instance ID to attach the firewall to'
+      firewall_label:
+        description: 'Label for the firewall (e.g., "web-server-firewall")'
         required: true
         type: string
-      environment:
-        description: 'Deployment environment (e.g., test, prod)'
-        required: true
+      firewall_type:
+        description: 'Type of firewall: "web" (80,443,22), "database" (5432,22), "custom"'
+        required: false
         type: string
-      application_name:
-        description: 'Application Name for firewall label'
+        default: 'web'
+      allow_ssh_from:
+        description: 'CIDR ranges allowed to SSH (e.g., "1.2.3.4/32,5.6.7.8/32"). Leave empty for 0.0.0.0/0'
         required: false
         type: string
         default: ''
-      allow_ssh_from:
-        description: 'CIDR ranges allowed to SSH. Options: empty=instance IP, "runner"=GitHub runner IP, or specific IP/CIDR'
+      environment:
+        description: 'Deployment environment for tagging (e.g., test, prod)'
         required: false
         type: string
-        default: 'runner'
+        default: 'production'
       terraform_dir:
         description: 'Directory containing Terraform configuration for firewall'
         required: false
@@ -55,27 +56,20 @@ jobs:
           terraform_version: '1.6.0'
           terraform_wrapper: false
 
-      - name: Get SSH Source IP
-        id: get-instance-ip
+      - name: Determine SSH Source IPs
+        id: get-ssh-source
         run: |
-          if [ "${{ inputs.allow_ssh_from }}" == "runner" ]; then
-            echo "Getting GitHub Actions runner public IP..."
-            RUNNER_IP=$(curl -s https://api.ipify.org)
-            echo "Runner IP: $RUNNER_IP"
-            echo "ssh_source=${RUNNER_IP}/32" >> $GITHUB_OUTPUT
-          elif [ -z "${{ inputs.allow_ssh_from }}" ]; then
-            echo "Fetching instance IP address from Linode API..."
-            INSTANCE_IP=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
-              "https://api.linode.com/v4/linode/instances/${{ inputs.instance_id }}" | \
-              jq -r '.ipv4[0]')
-            echo "Instance IP: $INSTANCE_IP"
-            echo "ssh_source=${INSTANCE_IP}/32" >> $GITHUB_OUTPUT
+          if [ -z "${{ inputs.allow_ssh_from }}" ]; then
+            echo "No SSH restrictions specified, allowing from anywhere"
+            echo "ssh_source=0.0.0.0/0" >> $GITHUB_OUTPUT
           else
             echo "Using provided CIDR ranges: ${{ inputs.allow_ssh_from }}"
             # Normalize IPs to include CIDR notation if missing
             NORMALIZED=""
             IFS=',' read -ra IPS <<< "${{ inputs.allow_ssh_from }}"
             for ip in "${IPS[@]}"; do
+              # Trim whitespace
+              ip=$(echo "$ip" | xargs)
               # Check if IP already has CIDR notation (contains /)
               if [[ ! "$ip" =~ / ]]; then
                 # Add /32 for single IP
@@ -95,7 +89,7 @@ jobs:
         working-directory: ${{ inputs.terraform_dir }}
         run: |
           # Convert comma-separated CIDR ranges to JSON array
-          IFS=',' read -ra CIDRS <<< "${{ steps.get-instance-ip.outputs.ssh_source }}"
+          IFS=',' read -ra CIDRS <<< "${{ steps.get-ssh-source.outputs.ssh_source }}"
           CIDRS_JSON="["
           for i in "${!CIDRS[@]}"; do
             CIDRS_JSON+="\"${CIDRS[$i]}\""
@@ -106,14 +100,16 @@ jobs:
           CIDRS_JSON+="]"
 
           # IPv6 values
-          IPV6_LOCALHOST='["::1/128"]'
           IPV6_ALL='["::/0"]'
+
+          # Determine inbound rules based on firewall type
+          FIREWALL_TYPE="${{ inputs.firewall_type }}"
 
           cat > terraform.tfvars <<EOF
           linode_token = "${{ secrets.LINODE_TOKEN }}"
-          firewall_label = "${{ inputs.environment }}-${{ inputs.application_name }}-firewall"
+          firewall_label = "${{ inputs.firewall_label }}"
           firewall_tags = ["${{ inputs.environment }}"]
-          linodes = [${{ inputs.instance_id }}]
+          linodes = []
           inbound_rules = [
             {
               label    = "allow-ssh"
@@ -121,7 +117,7 @@ jobs:
               protocol = "TCP"
               ports    = "22"
               ipv4     = ${CIDRS_JSON}
-              ipv6     = ${IPV6_LOCALHOST}
+              ipv6     = ${IPV6_ALL}
             },
             {
               label    = "allow-http"
