@@ -72,16 +72,6 @@ on:
         required: false
         type: string
         default: ''
-      ssh_tunnel_host:
-        description: 'SSH host to tunnel through (required if database is on VPC private IP). Use the public IP of the database server.'
-        required: false
-        type: string
-        default: ''
-      ssh_tunnel_user:
-        description: 'SSH user for tunneling'
-        required: false
-        type: string
-        default: 'root'
     secrets:
       DATABASE_PASSWORD:
         description: 'Database password'
@@ -193,17 +183,10 @@ jobs:
           echo "Migration files extracted to: $MIGRATIONS_DIR"
           ls -la "$MIGRATIONS_DIR"
 
-          # Determine database connection details
-          if [ "${{ inputs.ssh_tunnel_host }}" != "" ]; then
-            # Database requires SSH tunnel, but since we're on the server, use direct connection
-            DB_HOST="${{ inputs.database_host }}"
-            DB_PORT="${{ inputs.database_port }}"
-            echo "Using direct connection to database from server"
-          else
-            DB_HOST="${{ inputs.database_host }}"
-            DB_PORT="${{ inputs.database_port }}"
-            echo "Using direct connection to database"
-          fi
+          # Set database connection details
+          DB_HOST="${{ inputs.database_host }}"
+          DB_PORT="${{ inputs.database_port }}"
+          echo "Using direct connection to database from server"
 
           # Test database connectivity
           echo "Testing database connectivity..."
