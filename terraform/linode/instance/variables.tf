@@ -15,6 +15,18 @@ variable "domains_containers" {
   description = "JSON array of domain-to-container mappings for nginx reverse proxy - only required if install_nginx is true"
   default     = ""
 }
+
+variable "certbot_email" {
+  type        = string
+  description = "Email address for Let's Encrypt certificate notifications"
+  default     = ""
+}
+
+variable "install_ssl" {
+  type        = bool
+  description = "Whether to install SSL certificates using Let's Encrypt"
+  default     = true
+}
 variable "label" {
   type        = string
   description = "The label for the Linode instance"

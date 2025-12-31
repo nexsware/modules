@@ -12,11 +12,13 @@ resource "linode_instance" "this" {
   authorized_keys = var.authorized_keys
   tags            = var.tags
   private_ip      = var.private_ip
-  stackscript_id  = var.install_nginx && var.stackscript_id != null ? var.stackscript_id : null
+  stackscript_id  = var.install_nginx && var.stackscript_id != null && var.stackscript_id != 0 ? var.stackscript_id : null
 
   # Only include stackscript_data if stackscript_id is provided and nginx is being installed
-  stackscript_data = var.install_nginx && var.stackscript_id != null && var.domains_containers != "" ? {
+  stackscript_data = var.install_nginx && var.stackscript_id != null && var.stackscript_id != 0 && var.domains_containers != "" ? {
     domains_containers = var.domains_containers
+    certbot_email     = var.certbot_email != "" ? var.certbot_email : "admin@${var.server_name}"
+    install_ssl       = var.install_ssl ? "yes" : "no"
   } : {}
 
 

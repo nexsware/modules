@@ -57,8 +57,18 @@ on:
       stackscript_id:
         description: 'Linode StackScript ID to use for provisioning (only required if install_nginx is true)'
         required: false
+        type: number
+        default: 0
+      certbot_email:
+        description: 'Email for Let''s Encrypt SSL certificates (only required if install_nginx is true)'
+        required: false
         type: string
         default: ''
+      install_ssl:
+        description: 'Whether to install SSL certificates using Let''s Encrypt'
+        required: false
+        type: boolean
+        default: true
     secrets:
       LINODE_TOKEN:
         description: 'Linode API Token'
@@ -101,7 +111,7 @@ jobs:
       - name: Create Terraform Variables File
         working-directory: ${{ inputs.terraform_dir }}
         run: |
-          cat > terraform.tfvars <<EOF
+          cat > terraform.tfvars <<'EOF'
           linode_token = "${{ secrets.LINODE_TOKEN }}"
           region = "${{ inputs.region }}"
           type = "${{ inputs.instance_type }}"
@@ -113,10 +123,20 @@ jobs:
           vpc_id = "${{ inputs.vpc_id }}"
           subnet_id = "${{ inputs.subnet_id }}"
           install_nginx = ${{ inputs.install_nginx }}
-          server_name = "${{ inputs.server_name }}"
-          domains_containers = "${{ inputs.domains_containers }}"
-          $(if [ -n "${{ inputs.stackscript_id }}" ]; then echo "stackscript_id = ${{ inputs.stackscript_id }}"; fi)
           EOF
+
+          # Add nginx-related variables only if install_nginx is true
+          if [ "${{ inputs.install_nginx }}" = "true" ]; then
+            echo 'server_name = "${{ inputs.server_name }}"' >> terraform.tfvars
+            echo 'domains_containers = "${{ inputs.domains_containers }}"' >> terraform.tfvars
+            echo 'certbot_email = "${{ inputs.certbot_email }}"' >> terraform.tfvars
+            echo 'install_ssl = ${{ inputs.install_ssl }}' >> terraform.tfvars
+
+            # Add stackscript_id only if it's provided (not 0)
+            if [ "${{ inputs.stackscript_id }}" != "0" ]; then
+              echo 'stackscript_id = ${{ inputs.stackscript_id }}' >> terraform.tfvars
+            fi
+          fi
 
       - name: Terraform Init
         working-directory: ${{ inputs.terraform_dir }}
