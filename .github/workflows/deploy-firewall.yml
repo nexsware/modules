@@ -138,14 +138,6 @@ jobs:
               ports    = "443"
               ipv4     = ["0.0.0.0/0"]
               ipv6     = ${IPV6_ALL}
-            },
-            {
-              label    = "allow-spa"
-              action   = "ACCEPT"
-              protocol = "TCP"
-              ports    = "3000"
-              ipv4     = ["0.0.0.0/0"]
-              ipv6     = ${IPV6_ALL}
             }
           ]
           outbound_rules = [

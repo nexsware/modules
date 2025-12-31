@@ -69,6 +69,11 @@ on:
         required: false
         type: boolean
         default: true
+      firewall_ids:
+        description: 'Comma-separated list of Linode Cloud Firewall IDs to attach to the instance (e.g., "123456,789012")'
+        required: false
+        type: string
+        default: ''
     secrets:
       LINODE_TOKEN:
         description: 'Linode API Token'
@@ -124,6 +129,14 @@ jobs:
           subnet_id = "${{ inputs.subnet_id }}"
           install_nginx = ${{ inputs.install_nginx }}
           EOF
+
+          # Add firewall IDs if provided
+          if [ -n "${{ inputs.firewall_ids }}" ]; then
+            # Convert comma-separated string to Terraform list format
+            FIREWALL_IDS="${{ inputs.firewall_ids }}"
+            FORMATTED_IDS=$(echo "$FIREWALL_IDS" | sed 's/,/, /g')
+            echo "firewall_ids = [$FORMATTED_IDS]" >> terraform.tfvars
+          fi
 
           # Add nginx-related variables only if install_nginx is true
           if [ "${{ inputs.install_nginx }}" = "true" ]; then
