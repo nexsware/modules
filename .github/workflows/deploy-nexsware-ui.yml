@@ -67,10 +67,10 @@ on:
         type: string
         default: '80'
       host_port:
-        description: 'Host port to expose container on'
+        description: 'Host port to expose container on (leave empty if using Nginx reverse proxy)'
         required: false
         type: string
-        default: '3000'
+        default: ''
       env_vars:
         description: 'Environment variables for container (one per line, format: KEY=value)'
         required: false
@@ -217,5 +217,10 @@ jobs:
       - name: Test Deployment
         run: |
           sleep 5
-          echo "Testing deployment at http://${{ inputs.server_ip }}:${{ inputs.host_port }}"
-          curl -f http://${{ inputs.server_ip }}:${{ inputs.host_port }} || echo "Direct port access may be restricted"
+          if [ -n "${{ inputs.host_port }}" ]; then
+            echo "Testing deployment at http://${{ inputs.server_ip }}:${{ inputs.host_port }}"
+            curl -f http://${{ inputs.server_ip }}:${{ inputs.host_port }} || echo "Direct port access may be restricted"
+          else
+            echo "No host port exposed - container accessible via Nginx reverse proxy only"
+            echo "Container is running on internal port ${{ inputs.container_port }}"
+          fi

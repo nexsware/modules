@@ -22,9 +22,9 @@ inputs:
     required: false
     default: '80'
   host-port:
-    description: 'Host port to expose container on'
+    description: 'Host port to expose container on (leave empty if using Nginx reverse proxy)'
     required: false
-    default: '3000'
+    default: ''
   registry:
     description: 'Container registry URL'
     required: false
@@ -192,13 +192,22 @@ runs:
           done <<< "${{ inputs.env-vars }}"
         fi
 
+        # Build port mapping argument (only if host-port is provided)
+        PORT_ARGS=""
+        if [ -n "${{ inputs.host-port }}" ]; then
+          PORT_ARGS="-p ${{ inputs.host-port }}:${{ inputs.container-port }}"
+          echo "Exposing container port ${{ inputs.container-port }} on host port ${{ inputs.host-port }}"
+        else
+          echo "No host port specified - container accessible via localhost:${{ inputs.container-port }} only"
+        fi
+
         # Run the new container
         echo "Starting container: ${{ inputs.container-name }}"
         CONTAINER_ID=$(docker run -d \
           --name ${{ inputs.container-name }} \
           --restart ${{ inputs.restart-policy }} \
           --network ${{ inputs.network-mode }} \
-          -p ${{ inputs.host-port }}:${{ inputs.container-port }} \
+          $PORT_ARGS \
           $ENV_ARGS \
           ${{ inputs.additional-docker-args }} \
           "$IMAGE_NAME")
