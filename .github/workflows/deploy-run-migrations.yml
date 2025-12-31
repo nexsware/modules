@@ -33,11 +33,15 @@ on:
         required: false
         type: string
         default: 'migrate'
-      flyway_version:
-        description: 'Flyway version to use'
+      server_host:
+        description: 'Server host where Flyway is installed and migrations will run from'
+        required: true
+        type: string
+      server_user:
+        description: 'SSH user for the server'
         required: false
         type: string
-        default: '11.20.0'
+        default: 'root'
       baseline_on_migrate:
         description: 'Enable baseline on migrate for existing databases'
         required: false
@@ -126,185 +130,101 @@ jobs:
             echo "Warning: No SQL migration files found in ${{ inputs.migrations_path }}"
           fi
 
-      - name: Setup SSH Tunnel (if required)
-        if: ${{ inputs.ssh_tunnel_host != '' }}
+      - name: Create Migration Archive
         run: |
-          echo "Setting up SSH tunnel for VPC database access..."
+          echo "Creating archive of migration files..."
+          tar -czf migrations.tar.gz -C $(dirname "${{ inputs.migrations_path }}") $(basename "${{ inputs.migrations_path }}")
+          echo "✓ Migration archive created"
 
-          # Setup SSH key with proper formatting
+      - name: Setup SSH Connection to Server
+        run: |
+          echo "Setting up SSH connection to server..."
           mkdir -p ~/.ssh
-          cat > ~/.ssh/tunnel_key << 'EOF'
+          cat > ~/.ssh/server_key << 'EOF'
           ${{ secrets.SSH_PRIVATE_KEY }}
           EOF
-          chmod 600 ~/.ssh/tunnel_key
+          chmod 600 ~/.ssh/server_key
 
           # Add host key
-          ssh-keyscan -H ${{ inputs.ssh_tunnel_host }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H ${{ inputs.server_host }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
           # Verify key format
           echo "Verifying SSH key..."
-          if ! ssh-keygen -l -f ~/.ssh/tunnel_key > /dev/null 2>&1; then
+          if ! ssh-keygen -l -f ~/.ssh/server_key > /dev/null 2>&1; then
             echo "Error: SSH private key appears to be invalid"
             exit 1
           fi
 
-          # Start SSH tunnel in background (local 5432 -> VPC database)
-          echo "Starting SSH tunnel..."
-          ssh -f -N -L 5432:${{ inputs.database_host }}:${{ inputs.database_port }} \
-            -i ~/.ssh/tunnel_key \
-            -o StrictHostKeyChecking=no \
-            -o PasswordAuthentication=no \
-            -o PubkeyAuthentication=yes \
-            -o ServerAliveInterval=60 \
-            -o ServerAliveCountMax=3 \
-            ${{ inputs.ssh_tunnel_user }}@${{ inputs.ssh_tunnel_host }}
+          echo "✓ SSH connection configured"
 
-          # Wait for tunnel to be established
-          sleep 5
+      - name: Transfer Migration Files to Server
+        run: |
+          echo "Transferring migration files to server..."
+          scp -i ~/.ssh/server_key \
+              -o StrictHostKeyChecking=no \
+              migrations.tar.gz \
+              ${{ inputs.server_user }}@${{ inputs.server_host }}:/tmp/migrations.tar.gz
 
-          # Test tunnel connectivity
-          if nc -z localhost 5432 2>/dev/null; then
-            echo "✓ SSH tunnel established: localhost:5432 -> ${{ inputs.database_host }}:${{ inputs.database_port }}"
+          echo "✓ Migration files transferred"
+
+      - name: Run Flyway Migration on Server
+        id: execute-flyway
+        run: |
+          echo "Running Flyway migration on server: ${{ inputs.server_user }}@${{ inputs.server_host }}"
+
+          # Execute migration on remote server
+          ssh -i ~/.ssh/server_key \
+              -o StrictHostKeyChecking=no \
+              ${{ inputs.server_user }}@${{ inputs.server_host }} << 'ENDSSH'
+
+          set -e
+
+          echo "========================================="
+          echo "Flyway Migration on $(hostname)"
+          echo "========================================="
+
+          # Extract migration files
+          mkdir -p /tmp/flyway-migrations
+          cd /tmp/flyway-migrations
+          tar -xzf /tmp/migrations.tar.gz
+
+          MIGRATIONS_DIR="/tmp/flyway-migrations/$(basename "${{ inputs.migrations_path }}")"
+
+          echo "Migration files extracted to: $MIGRATIONS_DIR"
+          ls -la "$MIGRATIONS_DIR"
+
+          # Determine database connection details
+          if [ "${{ inputs.ssh_tunnel_host }}" != "" ]; then
+            # Database requires SSH tunnel, but since we're on the server, use direct connection
+            DB_HOST="${{ inputs.database_host }}"
+            DB_PORT="${{ inputs.database_port }}"
+            echo "Using direct connection to database from server"
           else
-            echo "Warning: Tunnel may not be ready yet, proceeding anyway..."
+            DB_HOST="${{ inputs.database_host }}"
+            DB_PORT="${{ inputs.database_port }}"
+            echo "Using direct connection to database"
           fi
 
-          echo "TUNNEL_ACTIVE=true" >> $GITHUB_ENV
-          echo "DB_HOST=localhost" >> $GITHUB_ENV
-          echo "DB_PORT=5432" >> $GITHUB_ENV
-
-      - name: Set Database Connection (direct)
-        if: ${{ inputs.ssh_tunnel_host == '' }}
-        run: |
-          echo "Using direct database connection (no SSH tunnel)"
-          echo "TUNNEL_ACTIVE=false" >> $GITHUB_ENV
-          echo "DB_HOST=${{ inputs.database_host }}" >> $GITHUB_ENV
-          echo "DB_PORT=${{ inputs.database_port }}" >> $GITHUB_ENV
-
-      - name: Install Flyway
-        run: |
-          REQUIRED_VERSION="${{ inputs.flyway_version }}"
-
-          # Function to compare versions (returns 0 if v1 >= v2, 1 otherwise)
-          version_ge() {
-            [ "$(printf '%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
-          }
-
-          # Check if Flyway is already installed
-          if command -v flyway &> /dev/null; then
-            INSTALLED_VERSION=$(flyway --version 2>&1 | grep -oP 'Flyway.*?\K\d+\.\d+\.\d+' || echo "0.0.0")
-            echo "Found existing Flyway version: $INSTALLED_VERSION"
-            echo "Required version: $REQUIRED_VERSION"
-
-            # If installed version is the same, skip
-            if [ "$INSTALLED_VERSION" = "$REQUIRED_VERSION" ]; then
-              echo "✓ Flyway $REQUIRED_VERSION already installed, skipping installation"
-              exit 0
-            fi
-
-            # If required version is newer, uninstall old version
-            if version_ge "$REQUIRED_VERSION" "$INSTALLED_VERSION"; then
-              echo "Newer version required ($REQUIRED_VERSION > $INSTALLED_VERSION)"
-              echo "Uninstalling old version $INSTALLED_VERSION..."
-
-              # Remove symlink
-              sudo rm -f /usr/local/bin/flyway
-
-              # Remove old flyway directories
-              rm -rf flyway-* 2>/dev/null || true
-
-              echo "✓ Old version removed"
-            else
-              echo "Required version ($REQUIRED_VERSION) is older than installed ($INSTALLED_VERSION)"
-              echo "Keeping existing installation"
-              exit 0
-            fi
-          fi
-
-          echo "Installing Flyway $REQUIRED_VERSION..."
-
-          # Flyway releases are available on GitHub
-          DOWNLOAD_URL="https://github.com/flyway/flyway/releases/download/flyway-$REQUIRED_VERSION/flyway-commandline-$REQUIRED_VERSION-linux-x64.tar.gz"
-          echo "Download URL: $DOWNLOAD_URL"
-
-          # Download with retries
-          for i in {1..3}; do
-            if wget -O flyway.tar.gz "$DOWNLOAD_URL"; then
-              echo "✓ Download successful"
-              break
-            else
-              echo "Download attempt $i failed, retrying..."
-              rm -f flyway.tar.gz
-              sleep 5
-            fi
-          done
-
-          # Verify download
-          if [ ! -f flyway.tar.gz ] || [ ! -s flyway.tar.gz ]; then
-            echo "Error: Failed to download Flyway after 3 attempts"
-            exit 1
-          fi
-
-          # Extract
-          echo "Extracting Flyway..."
-          tar xzf flyway.tar.gz
-          rm flyway.tar.gz
-
-          # Create symlink
-          sudo ln -s $(pwd)/flyway-$REQUIRED_VERSION/flyway /usr/local/bin/flyway
-
-          # Verify installation
-          echo "✓ Flyway $REQUIRED_VERSION installed successfully"
-          flyway --version
-
-      - name: Test Database Connectivity
-        run: |
+          # Test database connectivity
           echo "Testing database connectivity..."
-
-          # Install PostgreSQL client if not already installed
-          if ! command -v psql &> /dev/null; then
-            echo "Installing PostgreSQL client..."
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq postgresql-client
+          if command -v psql &> /dev/null; then
+            export PGPASSWORD='${{ secrets.DATABASE_PASSWORD }}'
+            if psql -h $DB_HOST -p $DB_PORT -U ${{ inputs.database_user }} -d ${{ inputs.database_name }} -c "SELECT version();" > /dev/null 2>&1; then
+              echo "✓ Successfully connected to database"
+            else
+              echo "✗ Failed to connect to database"
+              exit 1
+            fi
           else
-            echo "✓ PostgreSQL client already installed"
+            echo "Note: psql not available, skipping connectivity test"
           fi
 
-          # Test connection using environment variables set by previous steps
-          export PGPASSWORD='${{ secrets.DATABASE_PASSWORD }}'
-
-          if [ "$TUNNEL_ACTIVE" = "true" ]; then
-            echo "Testing connection through SSH tunnel..."
-            echo "  Tunnel: localhost:5432 -> ${{ inputs.database_host }}:${{ inputs.database_port }}"
-          else
-            echo "Testing direct connection..."
-          fi
-
-          if psql -h $DB_HOST \
-                  -p $DB_PORT \
-                  -U ${{ inputs.database_user }} \
-                  -d ${{ inputs.database_name }} \
-                  -c "SELECT version();" > /dev/null 2>&1; then
-            echo "✓ Successfully connected to database"
-          else
-            echo "✗ Failed to connect to database"
-            echo "Connection details (password hidden):"
-            echo "  Host: $DB_HOST"
-            echo "  Port: $DB_PORT"
-            echo "  Database: ${{ inputs.database_name }}"
-            echo "  User: ${{ inputs.database_user }}"
-            echo "  Tunnel Active: $TUNNEL_ACTIVE"
-            exit 1
-          fi
-
-      - name: Configure Flyway
-        run: |
-          # Create Flyway configuration file using connection details
-          cat > flyway.conf <<EOF
+          # Create Flyway configuration
+          cat > /tmp/flyway.conf <<EOF
           flyway.url=jdbc:postgresql://$DB_HOST:$DB_PORT/${{ inputs.database_name }}
           flyway.user=${{ inputs.database_user }}
           flyway.password=${{ secrets.DATABASE_PASSWORD }}
-          flyway.locations=filesystem:${{ inputs.migrations_path }}
+          flyway.locations=filesystem:$MIGRATIONS_DIR
           flyway.baselineOnMigrate=${{ inputs.baseline_on_migrate }}
           flyway.baselineVersion=${{ inputs.baseline_version }}
           flyway.validateOnMigrate=${{ inputs.validate_on_migrate }}
@@ -312,42 +232,31 @@ jobs:
           flyway.cleanDisabled=true
           EOF
 
-          echo "Flyway configuration created (password hidden)"
-          if [ "$TUNNEL_ACTIVE" == "true" ]; then
-            echo "Using SSH tunnel: localhost:5432 -> ${{ inputs.database_host }}:${{ inputs.database_port }}"
-          fi
+          echo "Flyway configuration created"
 
-      - name: Get Current Migration Status
-        id: flyway-info-before
-        run: |
+          # Get current migration status
           echo "Current migration status:"
-          flyway info -configFiles=flyway.conf || true
+          flyway info -configFiles=/tmp/flyway.conf || true
 
-      - name: Execute Flyway Command
-        id: execute-flyway
-        run: |
+          # Execute Flyway command
           echo "Executing Flyway command: ${{ inputs.flyway_command }}"
 
           case "${{ inputs.flyway_command }}" in
             migrate)
               echo "Running database migrations..."
-              flyway migrate -configFiles=flyway.conf
-              echo "migration_status=success" >> $GITHUB_OUTPUT
+              flyway migrate -configFiles=/tmp/flyway.conf
               ;;
             validate)
               echo "Validating migrations..."
-              flyway validate -configFiles=flyway.conf
-              echo "migration_status=validated" >> $GITHUB_OUTPUT
+              flyway validate -configFiles=/tmp/flyway.conf
               ;;
             info)
               echo "Getting migration info..."
-              flyway info -configFiles=flyway.conf
-              echo "migration_status=info" >> $GITHUB_OUTPUT
+              flyway info -configFiles=/tmp/flyway.conf
               ;;
             repair)
               echo "Repairing migration history..."
-              flyway repair -configFiles=flyway.conf
-              echo "migration_status=repaired" >> $GITHUB_OUTPUT
+              flyway repair -configFiles=/tmp/flyway.conf
               ;;
             clean)
               if [ "${{ inputs.environment }}" == "prod" ]; then
@@ -355,13 +264,11 @@ jobs:
                 exit 1
               fi
               echo "Warning: Cleaning database (removing all objects)..."
-              flyway clean -configFiles=flyway.conf
-              echo "migration_status=cleaned" >> $GITHUB_OUTPUT
+              flyway clean -configFiles=/tmp/flyway.conf
               ;;
             baseline)
               echo "Baselining database at version ${{ inputs.baseline_version }}..."
-              flyway baseline -configFiles=flyway.conf
-              echo "migration_status=baselined" >> $GITHUB_OUTPUT
+              flyway baseline -configFiles=/tmp/flyway.conf
               ;;
             *)
               echo "Error: Unknown Flyway command: ${{ inputs.flyway_command }}"
@@ -369,25 +276,62 @@ jobs:
               ;;
           esac
 
-      - name: Get Updated Migration Status
+          # Get updated migration status
+          echo "Updated migration status:"
+          flyway info -configFiles=/tmp/flyway.conf
+
+          # Validate after migration if requested
+          if [ "${{ inputs.flyway_command }}" == "migrate" ] && [ "${{ inputs.validate_on_migrate }}" == "true" ]; then
+            echo "Validating database state after migration..."
+            flyway validate -configFiles=/tmp/flyway.conf
+            echo "✓ Database validation successful"
+          fi
+
+          # Cleanup
+          rm -f /tmp/flyway.conf /tmp/migrations.tar.gz
+          rm -rf /tmp/flyway-migrations
+
+          echo "========================================="
+          echo "Migration completed successfully"
+          echo "========================================="
+
+          ENDSSH
+
+          # Capture exit code
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "migration_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "migration_status=failed" >> $GITHUB_OUTPUT
+            exit $EXIT_CODE
+          fi
+
+      - name: Get Migration Info
         id: flyway-info
         if: always()
         run: |
-          echo "Updated migration status:"
-          INFO_OUTPUT=$(flyway info -configFiles=flyway.conf)
+          echo "Fetching final migration info from server..."
+
+          INFO_OUTPUT=$(ssh -i ~/.ssh/server_key \
+              -o StrictHostKeyChecking=no \
+              ${{ inputs.server_user }}@${{ inputs.server_host }} << 'ENDSSH'
+
+          # Quick info check (Flyway might have been cleaned up)
+          if command -v flyway &> /dev/null; then
+            echo "Flyway is available on server"
+          else
+            echo "Note: Flyway info unavailable after migration"
+          fi
+
+          ENDSSH
+          )
+
           echo "$INFO_OUTPUT"
 
-          # Store info output (escape newlines for GitHub output)
+          # Store info output
           echo "info<<EOF" >> $GITHUB_OUTPUT
           echo "$INFO_OUTPUT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Validate Database After Migration
-        if: inputs.flyway_command == 'migrate' && inputs.validate_on_migrate
-        run: |
-          echo "Validating database state after migration..."
-          flyway validate -configFiles=flyway.conf
-          echo "✓ Database validation successful"
 
       - name: Display Migration Summary
         if: always()
@@ -396,6 +340,7 @@ jobs:
           echo "Flyway Migration Summary"
           echo "========================================="
           echo "Environment: ${{ inputs.environment }}"
+          echo "Server: ${{ inputs.server_host }}"
           echo "Database: ${{ inputs.database_name }}"
           echo "Host: ${{ inputs.database_host }}"
           echo "Command: ${{ inputs.flyway_command }}"
@@ -405,12 +350,5 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          # Kill SSH tunnel if it was created
-          if [ "$TUNNEL_ACTIVE" = "true" ]; then
-            echo "Closing SSH tunnel..."
-            pkill -f 'ssh.*5432' || true
-            rm -f ~/.ssh/tunnel_key
-          fi
-
-          # Remove config file containing password
-          rm -f flyway.conf
+          rm -f ~/.ssh/server_key
+          rm -f migrations.tar.gz
