@@ -222,7 +222,11 @@ jobs:
           ${{ secrets.SSH_PRIVATE_KEY }}
           EOF
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ inputs.server_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          # Add server to known_hosts if not already present
+          if ! grep -q "${{ inputs.server_ip }}" ~/.ssh/known_hosts 2>/dev/null; then
+            ssh-keyscan -H ${{ inputs.server_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          fi
 
       - name: Deploy Container to Server
         id: deploy-container
