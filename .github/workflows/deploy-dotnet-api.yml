@@ -103,6 +103,9 @@ on:
         required: false
 
       # Application Secrets (passed as env vars to container)
+      EMAIL_PASSWORD:
+        description: 'Email password (deprecated - use CONNECTIONSTRINGS__NEXSWARE instead)'
+        required: false
       DATABASE_PASSWORD:
         description: 'Database password (deprecated - use CONNECTIONSTRINGS__NEXSWARE instead)'
         required: false
@@ -259,6 +262,9 @@ jobs:
           fi
           if [ -n "${{ secrets.API_KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e API_KEY='${{ secrets.API_KEY }}'"
+          fi
+          if [ -n "${{ secrets.EMAIL_PASSWORD }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e Email_Password='${{ secrets.EMAIL_PASSWORD }}'"
           fi
 
           # Add ASPNETCORE_ENVIRONMENT
