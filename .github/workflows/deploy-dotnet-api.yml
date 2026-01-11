@@ -121,6 +121,9 @@ on:
       API_KEY:
         description: 'API key or other secrets'
         required: false
+      JWT__KEY:
+        description: 'JWT signing key (mapped to Jwt__Key)'
+        required: false
 
     outputs:
       image_tag:
@@ -269,6 +272,9 @@ jobs:
           fi
           if [ -n "${{ secrets.EMAIL_PASSWORD }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e Email_Password='${{ secrets.EMAIL_PASSWORD }}'"
+          fi
+          if [ -n "${{ secrets.JWT__KEY }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e Jwt__Key='${{ secrets.JWT__KEY }}'"
           fi
 
           # Add ASPNETCORE_ENVIRONMENT
