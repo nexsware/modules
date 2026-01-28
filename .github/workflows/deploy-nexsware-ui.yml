@@ -113,6 +113,10 @@ on:
         description: 'Deployed container ID'
         value: ${{ jobs.deploy-container.outputs.container_id }}
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest

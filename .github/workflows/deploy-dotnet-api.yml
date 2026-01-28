@@ -133,6 +133,10 @@ on:
         description: 'Deployment status'
         value: ${{ jobs.deploy.outputs.status }}
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
