@@ -1,0 +1,196 @@
+name: Deploy Vultr Instance (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      region:
+        description: 'Vultr region slug (e.g., jnb for Johannesburg)'
+        required: true
+        type: string
+      os_id:
+        description: 'Vultr OS ID (e.g., 2284 for Ubuntu 24.04 LTS)'
+        required: true
+        type: number
+      label:
+        description: 'Label for the instance'
+        required: true
+        type: string
+      plan:
+        description: 'Vultr plan slug (e.g., vhp-2c-4gb-intel)'
+        required: false
+        type: string
+        default: 'vhp-2c-4gb-intel'
+      hostname:
+        description: 'Hostname — defaults to label if empty'
+        required: false
+        type: string
+        default: ''
+      firewall_group_id:
+        description: 'Vultr firewall group ID to attach (leave empty for none)'
+        required: false
+        type: string
+        default: ''
+      vpc2_ids:
+        description: 'Comma-separated Vultr VPC 2.0 IDs to attach for private networking'
+        required: false
+        type: string
+        default: ''
+      ssh_key_ids:
+        description: 'Comma-separated Vultr SSH key IDs to authorize on the instance'
+        required: false
+        type: string
+        default: ''
+      user_data:
+        description: 'Cloud-init user data script (raw string). Leave empty for none.'
+        required: false
+        type: string
+        default: ''
+      environment:
+        description: 'Deployment environment (e.g., test, prod)'
+        required: true
+        type: string
+      terraform_dir:
+        description: 'Directory containing Terraform configuration'
+        required: false
+        type: string
+        default: 'modules/terraform/vultr/instance'
+    secrets:
+      VULTR_API_KEY:
+        description: 'Vultr API Key'
+        required: true
+    outputs:
+      instance_id:
+        description: 'The ID of the created instance'
+        value: ${{ jobs.deploy-instance.outputs.instance_id }}
+      ip_address:
+        description: 'The public IPv4 address of the instance'
+        value: ${{ jobs.deploy-instance.outputs.ip_address }}
+      internal_ip:
+        description: 'The private IP address within attached VPCs'
+        value: ${{ jobs.deploy-instance.outputs.internal_ip }}
+
+jobs:
+  deploy-instance:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.environment != 'prod' || github.ref == 'refs/heads/main' }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      instance_id: ${{ steps.terraform-apply.outputs.instance_id }}
+      ip_address: ${{ steps.terraform-apply.outputs.ip_address }}
+      internal_ip: ${{ steps.terraform-apply.outputs.internal_ip }}
+    steps:
+      - name: Checkout Terraform Modules
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: '1.6.0'
+          terraform_wrapper: false
+
+      - name: Prepare List Inputs
+        id: prepare-lists
+        run: |
+          # Convert comma-separated vpc2_ids to JSON array
+          if [ -z "${{ inputs.vpc2_ids }}" ]; then
+            echo "vpc2_ids_json=[]" >> $GITHUB_OUTPUT
+          else
+            IFS=',' read -ra IDS <<< "${{ inputs.vpc2_ids }}"
+            JSON="["
+            for i in "${!IDS[@]}"; do
+              ID=$(echo "${IDS[$i]}" | xargs)
+              JSON+="\"${ID}\""
+              [ $i -lt $(( ${#IDS[@]} - 1 )) ] && JSON+=","
+            done
+            JSON+="]"
+            echo "vpc2_ids_json=$JSON" >> $GITHUB_OUTPUT
+          fi
+
+          # Convert comma-separated ssh_key_ids to JSON array
+          if [ -z "${{ inputs.ssh_key_ids }}" ]; then
+            echo "ssh_key_ids_json=[]" >> $GITHUB_OUTPUT
+          else
+            IFS=',' read -ra IDS <<< "${{ inputs.ssh_key_ids }}"
+            JSON="["
+            for i in "${!IDS[@]}"; do
+              ID=$(echo "${IDS[$i]}" | xargs)
+              JSON+="\"${ID}\""
+              [ $i -lt $(( ${#IDS[@]} - 1 )) ] && JSON+=","
+            done
+            JSON+="]"
+            echo "ssh_key_ids_json=$JSON" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Terraform Variables File
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          # Build the JSON, conditionally including user_data
+          USER_DATA='${{ inputs.user_data }}'
+          if [ -n "$USER_DATA" ]; then
+            USER_DATA_JSON=$(jq -cn --arg ud "$USER_DATA" '$ud')
+          else
+            USER_DATA_JSON='""'
+          fi
+
+          cat > terraform.tfvars.json <<EOF
+          {
+            "vultr_api_key": "${{ secrets.VULTR_API_KEY }}",
+            "region": "${{ inputs.region }}",
+            "plan": "${{ inputs.plan }}",
+            "os_id": ${{ inputs.os_id }},
+            "label": "${{ inputs.label }}",
+            "hostname": "${{ inputs.hostname }}",
+            "firewall_group_id": "${{ inputs.firewall_group_id }}",
+            "vpc2_ids": ${{ steps.prepare-lists.outputs.vpc2_ids_json }},
+            "ssh_key_ids": ${{ steps.prepare-lists.outputs.ssh_key_ids_json }},
+            "tags": ["${{ inputs.environment }}"],
+            "user_data": $USER_DATA_JSON
+          }
+          EOF
+
+      - name: Debug - Show Generated Terraform Variables
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          echo "=== Generated terraform.tfvars.json ==="
+          cat terraform.tfvars.json | jq 'del(.vultr_api_key)'
+          echo "========================================"
+
+      - name: Terraform Init
+        working-directory: ${{ inputs.terraform_dir }}
+        run: terraform init
+
+      - name: Terraform Apply
+        id: terraform-apply
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          terraform apply -auto-approve
+          echo "instance_id=$(terraform output -raw id)" >> $GITHUB_OUTPUT
+          echo "ip_address=$(terraform output -raw ip_address)" >> $GITHUB_OUTPUT
+          echo "internal_ip=$(terraform output -raw internal_ip)" >> $GITHUB_OUTPUT
+
+      - name: Wait for Instance SSH to be Available
+        run: |
+          IP_ADDRESS="${{ steps.terraform-apply.outputs.ip_address }}"
+          echo "Waiting for SSH to be available on $IP_ADDRESS..."
+          for i in {1..30}; do
+            if timeout 5 bash -c "cat < /dev/null > /dev/tcp/$IP_ADDRESS/22" 2>/dev/null; then
+              echo "SSH is available on $IP_ADDRESS"
+              sleep 10
+              break
+            fi
+            echo "Waiting for SSH... (attempt $i/30)"
+            sleep 10
+          done
+
+      - name: Display Instance Info
+        run: |
+          echo "=== Vultr Instance Provisioned ==="
+          echo "Instance ID:   ${{ steps.terraform-apply.outputs.instance_id }}"
+          echo "Public IP:     ${{ steps.terraform-apply.outputs.ip_address }}"
+          echo "Internal IP:   ${{ steps.terraform-apply.outputs.internal_ip }}"
+          echo "Region:        ${{ inputs.region }}"
+          echo "Label:         ${{ inputs.label }}"
+          echo "=================================="

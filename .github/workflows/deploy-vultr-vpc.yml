@@ -1,0 +1,110 @@
+name: Deploy Vultr VPC 2.0 (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      region:
+        description: 'Vultr region slug (e.g., jnb for Johannesburg)'
+        required: true
+        type: string
+      description:
+        description: 'Human-readable label for the VPC'
+        required: false
+        type: string
+        default: ''
+      ip_block:
+        description: 'IPv4 network address for the VPC subnet (e.g., 10.0.0.0)'
+        required: false
+        type: string
+        default: '10.0.0.0'
+      prefix_length:
+        description: 'Subnet prefix length (e.g., 24 for /24)'
+        required: false
+        type: number
+        default: 24
+      environment:
+        description: 'Deployment environment (e.g., test, prod)'
+        required: true
+        type: string
+      terraform_dir:
+        description: 'Directory containing Terraform configuration'
+        required: false
+        type: string
+        default: 'modules/terraform/vultr/vpc'
+    secrets:
+      VULTR_API_KEY:
+        description: 'Vultr API Key'
+        required: true
+    outputs:
+      vpc_id:
+        description: 'The ID of the created VPC 2.0'
+        value: ${{ jobs.deploy-vpc.outputs.vpc_id }}
+      ip_block:
+        description: 'The IPv4 network address of the VPC subnet'
+        value: ${{ jobs.deploy-vpc.outputs.ip_block }}
+      prefix_length:
+        description: 'The prefix length of the VPC subnet'
+        value: ${{ jobs.deploy-vpc.outputs.prefix_length }}
+
+jobs:
+  deploy-vpc:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.environment != 'prod' || github.ref == 'refs/heads/main' }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      vpc_id: ${{ steps.terraform-apply.outputs.vpc_id }}
+      ip_block: ${{ steps.terraform-apply.outputs.ip_block }}
+      prefix_length: ${{ steps.terraform-apply.outputs.prefix_length }}
+    steps:
+      - name: Checkout Terraform Modules
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: '1.6.0'
+          terraform_wrapper: false
+
+      - name: Create Terraform Variables File
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          cat > terraform.tfvars.json <<EOF
+          {
+            "vultr_api_key": "${{ secrets.VULTR_API_KEY }}",
+            "region": "${{ inputs.region }}",
+            "description": "${{ inputs.description }}",
+            "ip_block": "${{ inputs.ip_block }}",
+            "prefix_length": ${{ inputs.prefix_length }}
+          }
+          EOF
+
+      - name: Debug - Show Generated Terraform Variables
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          echo "=== Generated terraform.tfvars.json ==="
+          cat terraform.tfvars.json | jq 'del(.vultr_api_key)'
+          echo "========================================"
+
+      - name: Terraform Init
+        working-directory: ${{ inputs.terraform_dir }}
+        run: terraform init
+
+      - name: Terraform Apply
+        id: terraform-apply
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          terraform apply -auto-approve
+          echo "vpc_id=$(terraform output -raw id)" >> $GITHUB_OUTPUT
+          echo "ip_block=$(terraform output -raw ip_block)" >> $GITHUB_OUTPUT
+          echo "prefix_length=$(terraform output -raw prefix_length)" >> $GITHUB_OUTPUT
+
+      - name: Display VPC Info
+        run: |
+          echo "=== Vultr VPC 2.0 Provisioned ==="
+          echo "VPC ID:    ${{ steps.terraform-apply.outputs.vpc_id }}"
+          echo "Region:    ${{ inputs.region }}"
+          echo "Network:   ${{ steps.terraform-apply.outputs.ip_block }}/${{ steps.terraform-apply.outputs.prefix_length }}"
+          echo "=================================="

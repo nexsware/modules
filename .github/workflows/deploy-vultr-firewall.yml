@@ -1,0 +1,140 @@
+name: Deploy Vultr Firewall Group (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      description:
+        description: 'Description for the firewall group'
+        required: true
+        type: string
+      firewall_type:
+        description: 'Type of firewall: "web" (80,443,22), "database" (5432,22), "custom" (22 only)'
+        required: false
+        type: string
+        default: 'web'
+      allow_ssh_from:
+        description: 'Comma-separated CIDR ranges allowed to SSH (leave empty for 0.0.0.0/0)'
+        required: false
+        type: string
+        default: ''
+      environment:
+        description: 'Deployment environment (e.g., test, prod)'
+        required: false
+        type: string
+        default: 'production'
+      terraform_dir:
+        description: 'Directory containing Terraform configuration'
+        required: false
+        type: string
+        default: 'modules/terraform/vultr/firewall'
+    secrets:
+      VULTR_API_KEY:
+        description: 'Vultr API Key'
+        required: true
+    outputs:
+      firewall_id:
+        description: 'The ID of the created firewall group'
+        value: ${{ jobs.deploy-firewall.outputs.firewall_id }}
+
+jobs:
+  deploy-firewall:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.environment != 'prod' || github.ref == 'refs/heads/main' }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      firewall_id: ${{ steps.terraform-apply.outputs.firewall_id }}
+    steps:
+      - name: Checkout Terraform Modules
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: '1.6.0'
+          terraform_wrapper: false
+
+      - name: Build Inbound Firewall Rules
+        id: build-rules
+        run: |
+          # Normalize SSH source CIDRs
+          if [ -z "${{ inputs.allow_ssh_from }}" ]; then
+            SSH_CIDRS='["0.0.0.0/0"]'
+          else
+            NORMALIZED=""
+            IFS=',' read -ra IPS <<< "${{ inputs.allow_ssh_from }}"
+            for ip in "${IPS[@]}"; do
+              ip=$(echo "$ip" | xargs)
+              [[ ! "$ip" =~ / ]] && ip="${ip}/32"
+              NORMALIZED="${NORMALIZED}\"${ip}\","
+            done
+            SSH_CIDRS="[${NORMALIZED%,}]"
+          fi
+
+          # Start with an empty rules array
+          RULES='[]'
+
+          # Add one SSH rule per CIDR
+          IDX=0
+          while IFS= read -r cidr; do
+            LABEL="allow-ssh"
+            [ "$IDX" -gt 0 ] && LABEL="allow-ssh-${IDX}"
+            RULE=$(jq -cn --arg label "$LABEL" --arg network "$cidr" \
+              '{label:$label,protocol:"tcp",network:$network,port:"22",ip_type:"v4"}')
+            RULES=$(echo "$RULES" | jq -c ". + [$RULE]")
+            IDX=$((IDX+1))
+          done < <(echo "$SSH_CIDRS" | jq -r '.[]')
+
+          # Add type-specific rules
+          FIREWALL_TYPE="${{ inputs.firewall_type }}"
+          if [ "$FIREWALL_TYPE" = "web" ]; then
+            RULES=$(echo "$RULES" | jq -c '. + [
+              {"label":"allow-http","protocol":"tcp","network":"0.0.0.0/0","port":"80","ip_type":"v4"},
+              {"label":"allow-https","protocol":"tcp","network":"0.0.0.0/0","port":"443","ip_type":"v4"}
+            ]')
+          elif [ "$FIREWALL_TYPE" = "database" ]; then
+            RULES=$(echo "$RULES" | jq -c '. + [
+              {"label":"allow-postgres","protocol":"tcp","network":"0.0.0.0/0","port":"5432","ip_type":"v4"}
+            ]')
+          fi
+
+          echo "rules_json=$RULES" >> $GITHUB_OUTPUT
+
+      - name: Create Terraform Variables File
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          cat > terraform.tfvars.json <<EOF
+          {
+            "vultr_api_key": "${{ secrets.VULTR_API_KEY }}",
+            "description": "${{ inputs.description }}",
+            "inbound_rules": ${{ steps.build-rules.outputs.rules_json }}
+          }
+          EOF
+
+      - name: Debug - Show Generated Terraform Variables
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          echo "=== Generated terraform.tfvars.json ==="
+          cat terraform.tfvars.json | jq 'del(.vultr_api_key)'
+          echo "========================================"
+
+      - name: Terraform Init
+        working-directory: ${{ inputs.terraform_dir }}
+        run: terraform init
+
+      - name: Terraform Apply
+        id: terraform-apply
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          terraform apply -auto-approve
+          echo "firewall_id=$(terraform output -raw id)" >> $GITHUB_OUTPUT
+
+      - name: Display Firewall Info
+        run: |
+          echo "=== Vultr Firewall Group Provisioned ==="
+          echo "Firewall ID:   ${{ steps.terraform-apply.outputs.firewall_id }}"
+          echo "Description:   ${{ inputs.description }}"
+          echo "Type:          ${{ inputs.firewall_type }}"
+          echo "========================================"

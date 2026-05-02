@@ -1,0 +1,58 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - postgresql-${postgres_version}
+  - postgresql-contrib
+
+write_files:
+  - path: /opt/nexsware-pg-setup.sh
+    permissions: '0700'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+
+      PGVER="${postgres_version}"
+      PGCONF="/etc/postgresql/$PGVER/main"
+
+      # Set listen address and port
+      cat >> "$PGCONF/postgresql.conf" <<PGEOF
+      listen_addresses = '${listen_address}'
+      port = ${port}
+      PGEOF
+
+      # Allow connections from private VPC ranges and localhost
+      cat >> "$PGCONF/pg_hba.conf" <<PGEOF
+      host    all    all    10.0.0.0/8     scram-sha-256
+      host    all    all    127.0.0.1/32   scram-sha-256
+      PGEOF
+
+      systemctl restart postgresql
+
+      # Set postgres superuser password
+      sudo -u postgres psql -c "ALTER USER postgres PASSWORD '${postgres_password}';"
+
+      %{ if length(databases) > 0 ~}
+      # Create databases
+      %{ for db in databases ~}
+      sudo -u postgres psql -c "CREATE DATABASE \"${db}\";"
+      %{ endfor ~}
+      %{ endif ~}
+
+      %{ if length(database_users) > 0 ~}
+      # Create users and grant access
+      %{ for username, user in database_users ~}
+      sudo -u postgres psql -c "CREATE USER \"${username}\" WITH PASSWORD '${user.password}';"
+      %{ for db in databases ~}
+      sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE \"${db}\" TO \"${username}\";"
+      sudo -u postgres psql -d "${db}" -c "GRANT ALL ON SCHEMA public TO \"${username}\";"
+      %{ endfor ~}
+      %{ endfor ~}
+      %{ endif ~}
+
+runcmd:
+  - systemctl enable postgresql
+  - systemctl start postgresql
+  - /opt/nexsware-pg-setup.sh
+  - rm -f /opt/nexsware-pg-setup.sh

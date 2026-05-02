@@ -1,0 +1,269 @@
+name: Provision Vultr PostgreSQL Database (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      region:
+        description: 'Vultr region slug (e.g., jnb for Johannesburg)'
+        required: true
+        type: string
+      plan:
+        description: 'Vultr managed database plan slug (e.g., vultr-dbaas-startup-cc-1-55-2)'
+        required: true
+        type: string
+      label:
+        description: 'Label for the database cluster'
+        required: true
+        type: string
+      engine_version:
+        description: 'PostgreSQL major version (e.g., 16)'
+        required: false
+        type: string
+        default: '16'
+      environment:
+        description: 'Deployment environment (e.g., test, prod)'
+        required: true
+        type: string
+      cluster_time_zone:
+        description: 'IANA time zone for the cluster (e.g., Africa/Nairobi)'
+        required: false
+        type: string
+        default: 'Africa/Nairobi'
+      maintenance_dow:
+        description: 'Day of week for maintenance window (monday … sunday)'
+        required: false
+        type: string
+        default: 'sunday'
+      maintenance_time:
+        description: 'Maintenance window start time in HH:MM (UTC)'
+        required: false
+        type: string
+        default: '22:00'
+      databases:
+        description: 'Comma-separated list of additional databases to create'
+        required: false
+        type: string
+        default: ''
+      service_account_username:
+        description: 'Service account username to create'
+        required: false
+        type: string
+        default: 'srv_account'
+      terraform_dir:
+        description: 'Directory containing Terraform configuration'
+        required: false
+        type: string
+        default: 'modules/terraform/vultr/postgres'
+    secrets:
+      VULTR_API_KEY:
+        description: 'Vultr API Key'
+        required: true
+      SERVICE_ACCOUNT:
+        description: 'Service account username (overrides service_account_username input if provided)'
+        required: false
+      SERVICE_ACCOUNT_PASSWORD:
+        description: 'Password for the service account user'
+        required: false
+    outputs:
+      database_id:
+        description: 'The ID of the created database cluster'
+        value: ${{ jobs.provision-postgres.outputs.database_id }}
+      database_host:
+        description: 'The hostname of the database cluster'
+        value: ${{ jobs.provision-postgres.outputs.database_host }}
+      database_port:
+        description: 'The port of the database'
+        value: ${{ jobs.provision-postgres.outputs.database_port }}
+      database_user:
+        description: 'The admin username for the database'
+        value: ${{ jobs.provision-postgres.outputs.database_user }}
+      connection_string:
+        description: 'The full PostgreSQL connection string (includes password — treat as secret)'
+        value: ${{ jobs.provision-postgres.outputs.connection_string }}
+
+jobs:
+  provision-postgres:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.environment != 'prod' || github.ref == 'refs/heads/main' }}
+    environment: ${{ inputs.environment }}
+    outputs:
+      database_id: ${{ steps.terraform-apply.outputs.database_id }}
+      database_host: ${{ steps.terraform-apply.outputs.database_host }}
+      database_port: ${{ steps.terraform-apply.outputs.database_port }}
+      database_user: ${{ steps.terraform-apply.outputs.database_user }}
+      connection_string: ${{ steps.terraform-apply.outputs.connection_string }}
+    steps:
+      - name: Checkout Terraform Modules
+        uses: actions/checkout@v4
+        with:
+          repository: nexsware/modules
+          path: modules
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: '1.6.0'
+          terraform_wrapper: false
+
+      - name: Prepare Databases List
+        id: prepare-databases
+        run: |
+          if [ -z "${{ inputs.databases }}" ]; then
+            echo "databases_json=[]" >> $GITHUB_OUTPUT
+          else
+            IFS=',' read -ra DBS <<< "${{ inputs.databases }}"
+            JSON="["
+            for i in "${!DBS[@]}"; do
+              DB=$(echo "${DBS[$i]}" | xargs)
+              JSON+="\"${DB}\""
+              [ $i -lt $(( ${#DBS[@]} - 1 )) ] && JSON+=","
+            done
+            JSON+="]"
+            echo "databases_json=$JSON" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare Database Users
+        id: prepare-users
+        run: |
+          if [ -n "${{ secrets.SERVICE_ACCOUNT_PASSWORD }}" ]; then
+            if [ -n "${{ secrets.SERVICE_ACCOUNT }}" ]; then
+              USERNAME="${{ secrets.SERVICE_ACCOUNT }}"
+            else
+              USERNAME="${{ inputs.service_account_username }}"
+            fi
+            USERS_JSON=$(jq -cn \
+              --arg user "$USERNAME" \
+              --arg pass "${{ secrets.SERVICE_ACCOUNT_PASSWORD }}" \
+              '{($user): {password: $pass, roles: []}}')
+          else
+            USERS_JSON='{}'
+          fi
+          echo "users_json=$USERS_JSON" >> $GITHUB_OUTPUT
+
+      - name: Create Terraform Variables File
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          cat > terraform.tfvars.json <<EOF
+          {
+            "vultr_api_key": "${{ secrets.VULTR_API_KEY }}",
+            "label": "${{ inputs.label }}",
+            "region": "${{ inputs.region }}",
+            "plan": "${{ inputs.plan }}",
+            "engine_version": "${{ inputs.engine_version }}",
+            "cluster_time_zone": "${{ inputs.cluster_time_zone }}",
+            "maintenance_dow": "${{ inputs.maintenance_dow }}",
+            "maintenance_time": "${{ inputs.maintenance_time }}",
+            "databases": ${{ steps.prepare-databases.outputs.databases_json }},
+            "database_users": ${{ steps.prepare-users.outputs.users_json }},
+            "create_resources": false
+          }
+          EOF
+
+      - name: Debug - Show Generated Terraform Variables
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          echo "=== Generated terraform.tfvars.json ==="
+          cat terraform.tfvars.json | jq 'del(.vultr_api_key) | del(.database_users)'
+          echo "========================================"
+
+      - name: Terraform Init
+        working-directory: ${{ inputs.terraform_dir }}
+        run: terraform init
+
+      - name: Terraform Apply - Create Cluster
+        id: terraform-apply
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          terraform apply -auto-approve -var='create_resources=false'
+          echo "database_id=$(terraform output -raw id)" >> $GITHUB_OUTPUT
+          echo "database_host=$(terraform output -raw host)" >> $GITHUB_OUTPUT
+          echo "database_port=$(terraform output -raw port)" >> $GITHUB_OUTPUT
+          echo "database_user=$(terraform output -raw user)" >> $GITHUB_OUTPUT
+          echo "connection_string=$(terraform output -raw connection_string)" >> $GITHUB_OUTPUT
+
+      - name: Wait for Database to be Ready
+        run: |
+          DB_ID="${{ steps.terraform-apply.outputs.database_id }}"
+          echo "Waiting for database cluster to be running..."
+          for i in {1..60}; do
+            STATUS=$(curl -s \
+              -H "Authorization: Bearer ${{ secrets.VULTR_API_KEY }}" \
+              "https://api.vultr.com/v2/databases/${DB_ID}" | \
+              jq -r '.database.status')
+            echo "Status: $STATUS (attempt $i/60)"
+            if [ "$STATUS" = "Running" ]; then
+              echo "Database is ready!"
+              break
+            fi
+            if [ "$STATUS" = "Error" ]; then
+              echo "Database provisioning failed!"
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Get GitHub Runner IP
+        id: runner-ip
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
+          echo "GitHub Actions Runner IP: $RUNNER_IP"
+
+      - name: Add Runner IP to Database Trusted IPs
+        run: |
+          DB_ID="${{ steps.terraform-apply.outputs.database_id }}"
+          RUNNER_IP="${{ steps.runner-ip.outputs.runner_ip }}"
+
+          echo "Adding runner IP ($RUNNER_IP) to database trusted_ips..."
+
+          CURRENT=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.VULTR_API_KEY }}" \
+            "https://api.vultr.com/v2/databases/${DB_ID}" | \
+            jq -r '.database.trusted_ips // []')
+
+          NEW=$(echo "$CURRENT" | jq -c ". + [\"${RUNNER_IP}/32\"]")
+
+          curl -s -X PUT \
+            -H "Authorization: Bearer ${{ secrets.VULTR_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"trusted_ips\": $NEW}" \
+            "https://api.vultr.com/v2/databases/${DB_ID}"
+
+          echo "Runner IP added. Waiting 30 seconds for firewall to update..."
+          sleep 30
+
+      - name: Terraform Apply - Create Databases and Users
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          echo "Creating databases and users now that runner IP is trusted..."
+          terraform apply -auto-approve -var='create_resources=true'
+
+      - name: Display Database Connection Info
+        run: |
+          echo "=== Vultr PostgreSQL Database Provisioned ==="
+          echo "Database ID:  ${{ steps.terraform-apply.outputs.database_id }}"
+          echo "Host:         ${{ steps.terraform-apply.outputs.database_host }}"
+          echo "Port:         ${{ steps.terraform-apply.outputs.database_port }}"
+          echo "Username:     ${{ steps.terraform-apply.outputs.database_user }}"
+          echo "============================================="
+
+      - name: Remove Runner IP from Trusted IPs
+        if: always()
+        run: |
+          DB_ID="${{ steps.terraform-apply.outputs.database_id }}"
+          RUNNER_IP="${{ steps.runner-ip.outputs.runner_ip }}"
+
+          echo "Removing runner IP ($RUNNER_IP) from trusted_ips..."
+
+          UPDATED=$(curl -s \
+            -H "Authorization: Bearer ${{ secrets.VULTR_API_KEY }}" \
+            "https://api.vultr.com/v2/databases/${DB_ID}" | \
+            jq -c "[.database.trusted_ips[] | select(. != \"${RUNNER_IP}/32\")]")
+
+          curl -s -X PUT \
+            -H "Authorization: Bearer ${{ secrets.VULTR_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"trusted_ips\": $UPDATED}" \
+            "https://api.vultr.com/v2/databases/${DB_ID}"
+
+          echo "Runner IP removed."
