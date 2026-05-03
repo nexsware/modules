@@ -8,10 +8,15 @@ on:
         required: true
         type: string
       firewall_type:
-        description: 'Type of firewall: "web" (80,443 public + SSH), "api" (app port from app subnet + SSH), "database" (5432 from app subnet + SSH), "custom" (SSH only)'
+        description: 'Type of firewall: "web" (80,443 public), "api" (app port from app subnet), "database" (5432 from app subnet), "custom" (no extra ports). SSH is controlled separately by enable_ssh'
         required: false
         type: string
         default: 'web'
+      enable_ssh:
+        description: 'Whether to add an SSH (port 22) inbound rule. Must be explicitly set to true — SSH is off by default'
+        required: false
+        type: boolean
+        default: false
       allow_ssh_from:
         description: 'Comma-separated CIDR ranges allowed to SSH. Use bastion subnet (10.0.0.128/26) for app/db servers, leave empty for bastion host itself (0.0.0.0/0)'
         required: false
@@ -86,16 +91,18 @@ jobs:
           # Start with an empty rules array
           RULES='[]'
 
-          # Add one SSH rule per CIDR
-          IDX=0
-          while IFS= read -r cidr; do
-            LABEL="allow-ssh"
-            [ "$IDX" -gt 0 ] && LABEL="allow-ssh-${IDX}"
-            RULE=$(jq -cn --arg label "$LABEL" --arg network "$cidr" \
-              '{label:$label,protocol:"tcp",network:$network,port:"22",ip_type:"v4"}')
-            RULES=$(echo "$RULES" | jq -c ". + [$RULE]")
-            IDX=$((IDX+1))
-          done < <(echo "$SSH_CIDRS" | jq -r '.[]')
+          # Add one SSH rule per CIDR (skipped when enable_ssh is false)
+          if [ "${{ inputs.enable_ssh }}" = "true" ]; then
+            IDX=0
+            while IFS= read -r cidr; do
+              LABEL="allow-ssh"
+              [ "$IDX" -gt 0 ] && LABEL="allow-ssh-${IDX}"
+              RULE=$(jq -cn --arg label "$LABEL" --arg network "$cidr" \
+                '{label:$label,protocol:"tcp",network:$network,port:"22",ip_type:"v4"}')
+              RULES=$(echo "$RULES" | jq -c ". + [$RULE]")
+              IDX=$((IDX+1))
+            done < <(echo "$SSH_CIDRS" | jq -r '.[]')
+          fi
 
           # Add type-specific rules
           FIREWALL_TYPE="${{ inputs.firewall_type }}"
