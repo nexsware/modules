@@ -11,7 +11,8 @@ resource "vultr_firewall_rule" "inbound" {
 
   firewall_group_id = vultr_firewall_group.this.id
   protocol          = each.value.protocol
-  network           = each.value.network
+  subnet            = cidrhost(each.value.network, 0)
+  subnet_size       = tonumber(split("/", each.value.network)[1])
   port              = each.value.port != "" ? each.value.port : null
   ip_type           = each.value.ip_type
   notes             = each.value.label
