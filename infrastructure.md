@@ -59,16 +59,17 @@ Each `/24` VPC is divided into four `/26` logical subnets. Vultr VPC is a flat L
 
 | Subnet | Range | Purpose |
 | --- | --- | --- |
-| `10.0.0.0/26` | `10.0.0.1` – `10.0.0.62` | Web / app servers |
+| `10.0.0.0/26` | `10.0.0.1` – `10.0.0.62` | Nginx/UI (public 80/443) + API servers |
 | `10.0.0.64/26` | `10.0.0.65` – `10.0.0.126` | Databases |
 | `10.0.0.128/26` | `10.0.0.129` – `10.0.0.190` | Internal / bastion |
 | `10.0.0.192/26` | `10.0.0.193` – `10.0.0.254` | Reserved / future use |
 
 **Firewall rules that follow from this layout:**
 
-- **Database servers** — allow port 5432 only from `10.0.0.0/26` (app subnet). Pass `app_subnet: 10.0.0.0/26` to `deploy-vultr-firewall.yml` with `firewall_type: database`.
-- **App / web servers** — allow SSH only from `10.0.0.128/26` (bastion subnet). Pass `allow_ssh_from: 10.0.0.128/26`.
-- **Bastion host** — allow SSH from `0.0.0.0/0` (or known IPs). Leave `allow_ssh_from` empty or set to your trusted CIDRs.
+- **Nginx / UI edge** (`firewall_type: web`) — public ports 80/443 from `0.0.0.0/0`, SSH from `10.0.0.128/26`. The only server reachable from the internet.
+- **API servers** (`firewall_type: api`) — app port (default `5000`) from `10.0.0.0/26` only, SSH from `10.0.0.128/26`. Never exposed to the internet.
+- **Database servers** (`firewall_type: database`) — port 5432 from `10.0.0.0/26` only, SSH from `10.0.0.128/26`. Pass `app_subnet: 10.0.0.0/26`.
+- **Bastion host** (`firewall_type: custom`) — SSH from `0.0.0.0/0` (or known IPs). Leave `allow_ssh_from` empty or restrict to trusted CIDRs.
 
 For the test environment, replace the first octet pair: `10.0.x.x` → `10.1.x.x`.
 
