@@ -16,13 +16,31 @@ write_files:
       PGVER="${postgres_version}"
       PGCONF="/etc/postgresql/$PGVER/main"
 
+      %{ if private_ip != "" ~}
+      # Assign static private IP to the VPC interface
+      PRIMARY_IFACE=$(ip route show default | awk '/default/ {print $5; exit}')
+      VPC_IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | grep -v "$PRIMARY_IFACE" | head -1)
+      SUBNET_PREFIX=$(echo "${db_subnet}" | cut -d'/' -f2)
+      cat > /etc/netplan/99-vpc-static.yaml <<NETEOF
+      network:
+        version: 2
+        ethernets:
+          $VPC_IFACE:
+            dhcp4: false
+            addresses:
+              - ${private_ip}/$SUBNET_PREFIX
+      NETEOF
+      chmod 600 /etc/netplan/99-vpc-static.yaml
+      netplan apply
+      %{ endif ~}
+
       # Set listen address and port
       cat >> "$PGCONF/postgresql.conf" <<PGEOF
       listen_addresses = '${listen_address}'
       port = ${port}
       PGEOF
 
-      # Allow connections from private VPC ranges and localhost
+      # Allow connections from all private VPC ranges and localhost
       cat >> "$PGCONF/pg_hba.conf" <<PGEOF
       host    all    all    10.0.0.0/8     scram-sha-256
       host    all    all    127.0.0.1/32   scram-sha-256

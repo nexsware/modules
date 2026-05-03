@@ -79,6 +79,24 @@ variable "listen_address" {
   default     = "*"
 }
 
+variable "private_ip" {
+  type        = string
+  description = "Static private IP to assign to the VPC interface (e.g., 10.0.0.65). Must be within db_subnet. Leave empty to use Vultr auto-assigned IP."
+  default     = ""
+}
+
+variable "vpc_cidr" {
+  type        = string
+  description = "CIDR of the VPC this instance is deployed into (e.g., 10.0.0.0/24)"
+  default     = "10.0.0.0/24"
+}
+
+variable "db_subnet" {
+  type        = string
+  description = "CIDR of the subnet within the VPC where this database instance is placed (e.g., 10.0.0.64/26)"
+  default     = "10.0.0.64/26"
+}
+
 variable "databases" {
   type        = list(string)
   description = "Databases to create on first boot"

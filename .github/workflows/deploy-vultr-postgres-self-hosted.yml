@@ -40,6 +40,21 @@ on:
         required: false
         type: string
         default: '*'
+      private_ip:
+        description: 'Static private IP to assign to the VPC interface (e.g., 10.0.0.65). Must be within db_subnet. Leave empty to use Vultr auto-assigned IP.'
+        required: false
+        type: string
+        default: ''
+      vpc_cidr:
+        description: 'CIDR of the VPC this instance is deployed into (e.g., 10.0.0.0/24)'
+        required: false
+        type: string
+        default: '10.0.0.0/24'
+      db_subnet:
+        description: 'CIDR of the subnet within the VPC where this database instance is placed (e.g., 10.0.0.64/26)'
+        required: false
+        type: string
+        default: '10.0.0.64/26'
       databases:
         description: 'Comma-separated list of databases to create'
         required: false
@@ -205,6 +220,9 @@ jobs:
             "postgres_password": "${{ secrets.POSTGRES_PASSWORD }}",
             "port": ${{ inputs.port }},
             "listen_address": "${{ inputs.listen_address }}",
+            "private_ip": "${{ inputs.private_ip }}",
+            "vpc_cidr": "${{ inputs.vpc_cidr }}",
+            "db_subnet": "${{ inputs.db_subnet }}",
             "databases": ${{ steps.prepare-lists.outputs.databases_json }},
             "database_users": ${{ steps.prepare-users.outputs.users_json }},
             "firewall_group_id": "${{ inputs.firewall_group_id }}",

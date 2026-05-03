@@ -18,6 +18,8 @@ resource "vultr_instance" "this" {
     postgres_password = var.postgres_password
     listen_address    = var.listen_address
     port              = var.port
+    private_ip        = var.private_ip
+    db_subnet         = var.db_subnet
     databases         = var.databases
     database_users    = var.database_users
   })
