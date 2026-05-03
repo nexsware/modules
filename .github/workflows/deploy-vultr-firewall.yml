@@ -8,15 +8,25 @@ on:
         required: true
         type: string
       firewall_type:
-        description: 'Type of firewall: "web" (80,443,22), "database" (5432,22), "custom" (22 only)'
+        description: 'Type of firewall: "web" (80,443 public + SSH), "api" (app port from app subnet + SSH), "database" (5432 from app subnet + SSH), "custom" (SSH only)'
         required: false
         type: string
         default: 'web'
       allow_ssh_from:
-        description: 'Comma-separated CIDR ranges allowed to SSH (leave empty for 0.0.0.0/0)'
+        description: 'Comma-separated CIDR ranges allowed to SSH. Use bastion subnet (10.0.0.128/26) for app/db servers, leave empty for bastion host itself (0.0.0.0/0)'
         required: false
         type: string
         default: ''
+      app_subnet:
+        description: 'App subnet CIDR — restricts database port 5432 and API port access to this range (default: 10.0.0.0/26)'
+        required: false
+        type: string
+        default: '10.0.0.0/26'
+      app_port:
+        description: 'Port the API server listens on — used when firewall_type is "api" (default: 5000)'
+        required: false
+        type: string
+        default: '5000'
       environment:
         description: 'Deployment environment (e.g., test, prod)'
         required: false
@@ -94,9 +104,13 @@ jobs:
               {"label":"allow-http","protocol":"tcp","network":"0.0.0.0/0","port":"80","ip_type":"v4"},
               {"label":"allow-https","protocol":"tcp","network":"0.0.0.0/0","port":"443","ip_type":"v4"}
             ]')
+          elif [ "$FIREWALL_TYPE" = "api" ]; then
+            RULES=$(echo "$RULES" | jq -c --arg subnet "${{ inputs.app_subnet }}" --arg port "${{ inputs.app_port }}" '. + [
+              {"label":"allow-api","protocol":"tcp","network":$subnet,"port":$port,"ip_type":"v4"}
+            ]')
           elif [ "$FIREWALL_TYPE" = "database" ]; then
-            RULES=$(echo "$RULES" | jq -c '. + [
-              {"label":"allow-postgres","protocol":"tcp","network":"0.0.0.0/0","port":"5432","ip_type":"v4"}
+            RULES=$(echo "$RULES" | jq -c --arg subnet "${{ inputs.app_subnet }}" '. + [
+              {"label":"allow-postgres","protocol":"tcp","network":$subnet,"port":"5432","ip_type":"v4"}
             ]')
           fi
 

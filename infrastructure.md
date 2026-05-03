@@ -53,6 +53,25 @@ Vultr requires `ip_block` to be specified — it is not auto-assigned. Use these
 
 Each `/24` provides 254 usable addresses. Reserve `10.2.0.0/24` and above for future environments.
 
+## VPC Subnet Layout
+
+Each `/24` VPC is divided into four `/26` logical subnets. Vultr VPC is a flat Layer 2 network — subnet boundaries are enforced by firewall rules, not the network itself.
+
+| Subnet | Range | Purpose |
+| --- | --- | --- |
+| `10.0.0.0/26` | `10.0.0.1` – `10.0.0.62` | Web / app servers |
+| `10.0.0.64/26` | `10.0.0.65` – `10.0.0.126` | Databases |
+| `10.0.0.128/26` | `10.0.0.129` – `10.0.0.190` | Internal / bastion |
+| `10.0.0.192/26` | `10.0.0.193` – `10.0.0.254` | Reserved / future use |
+
+**Firewall rules that follow from this layout:**
+
+- **Database servers** — allow port 5432 only from `10.0.0.0/26` (app subnet). Pass `app_subnet: 10.0.0.0/26` to `deploy-vultr-firewall.yml` with `firewall_type: database`.
+- **App / web servers** — allow SSH only from `10.0.0.128/26` (bastion subnet). Pass `allow_ssh_from: 10.0.0.128/26`.
+- **Bastion host** — allow SSH from `0.0.0.0/0` (or known IPs). Leave `allow_ssh_from` empty or set to your trusted CIDRs.
+
+For the test environment, replace the first octet pair: `10.0.x.x` → `10.1.x.x`.
+
 ---
 
 ## Vultr Terraform Modules
@@ -244,8 +263,10 @@ All workflows are reusable (`workflow_call`) and require a `VULTR_API_KEY` secre
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `description` | yes | — | Firewall group description |
-| `firewall_type` | no | `web` | `web` (80,443,22), `database` (5432,22), `custom` (22 only) |
+| `firewall_type` | no | `web` | `web` (80,443 public + SSH), `api` (app port from app subnet + SSH), `database` (5432 from app subnet + SSH), `custom` (SSH only) |
 | `allow_ssh_from` | no | `""` | Comma-separated CIDRs for SSH (empty = `0.0.0.0/0`) |
+| `app_subnet` | no | `10.0.0.0/26` | Subnet allowed to reach `api` and `database` ports |
+| `app_port` | no | `5000` | Port the API server listens on (used with `firewall_type: api`) |
 | `environment` | no | `production` | GitHub environment |
 | `terraform_dir` | no | `modules/terraform/vultr/firewall` | Terraform directory |
 
