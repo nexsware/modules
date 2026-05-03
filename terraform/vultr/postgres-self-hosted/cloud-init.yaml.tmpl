@@ -34,16 +34,16 @@ write_files:
       sudo -u postgres psql -c "ALTER USER postgres PASSWORD '${postgres_password}';"
 
       %{ if length(databases) > 0 ~}
-      # Create databases
+      # Create databases (idempotent — skips if already exists)
       %{ for db in databases ~}
-      sudo -u postgres psql -c "CREATE DATABASE \"${db}\";"
+      sudo -u postgres psql -c "SELECT 'CREATE DATABASE \"${db}\"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${db}')\gexec"
       %{ endfor ~}
       %{ endif ~}
 
       %{ if length(database_users) > 0 ~}
-      # Create users and grant access
+      # Create users and grant access (idempotent — skips user if already exists)
       %{ for username, user in database_users ~}
-      sudo -u postgres psql -c "CREATE USER \"${username}\" WITH PASSWORD '${user.password}';"
+      sudo -u postgres psql -c "SELECT 'CREATE USER \"${username}\" WITH PASSWORD ''${user.password}''' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${username}')\gexec"
       %{ for db in databases ~}
       sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE \"${db}\" TO \"${username}\";"
       sudo -u postgres psql -d "${db}" -c "GRANT ALL ON SCHEMA public TO \"${username}\";"
