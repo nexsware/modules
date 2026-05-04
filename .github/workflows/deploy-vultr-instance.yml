@@ -31,7 +31,22 @@ on:
         type: string
         default: ''
       vpc_ids:
-        description: 'Comma-separated Vultr VPC 2.0 IDs to attach for private networking'
+        description: 'Comma-separated Vultr VPC IDs to attach for private networking'
+        required: false
+        type: string
+        default: ''
+      private_ip:
+        description: 'Static private IP to assign to the VPC interface (e.g., 10.0.0.129). Must be within instance_subnet. Leave empty to use Vultr auto-assigned IP.'
+        required: false
+        type: string
+        default: ''
+      vpc_cidr:
+        description: 'CIDR of the VPC this instance is deployed into (e.g., 10.0.0.0/24)'
+        required: false
+        type: string
+        default: '10.0.0.0/24'
+      instance_subnet:
+        description: 'CIDR of the subnet within the VPC where this instance is placed (e.g., 10.0.0.128/26 for bastion, 10.0.0.0/26 for app)'
         required: false
         type: string
         default: ''
@@ -145,6 +160,9 @@ jobs:
             "hostname": "${{ inputs.hostname }}",
             "firewall_group_id": "${{ inputs.firewall_group_id }}",
             "vpc_ids": ${{ steps.prepare-lists.outputs.vpc_ids_json }},
+            "private_ip": "${{ inputs.private_ip }}",
+            "vpc_cidr": "${{ inputs.vpc_cidr }}",
+            "instance_subnet": "${{ inputs.instance_subnet }}",
             "ssh_key_ids": ${{ steps.prepare-lists.outputs.ssh_key_ids_json }},
             "tags": ["${{ inputs.environment }}"],
             "user_data": $USER_DATA_JSON

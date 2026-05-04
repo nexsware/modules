@@ -61,8 +61,26 @@ variable "vpc_ids" {
   default     = []
 }
 
+variable "private_ip" {
+  type        = string
+  description = "Static private IP to assign to the VPC interface (e.g., 10.0.0.129). Must be within instance_subnet. Leave empty to use Vultr auto-assigned IP."
+  default     = ""
+}
+
+variable "vpc_cidr" {
+  type        = string
+  description = "CIDR of the VPC this instance is deployed into (e.g., 10.0.0.0/24)"
+  default     = "10.0.0.0/24"
+}
+
+variable "instance_subnet" {
+  type        = string
+  description = "CIDR of the subnet within the VPC where this instance is placed (e.g., 10.0.0.128/26 for bastion, 10.0.0.0/26 for app)"
+  default     = ""
+}
+
 variable "user_data" {
   type        = string
-  description = "Cloud-init user data script (raw string). Leave empty for no user data."
+  description = "Optional shell script to run on first boot after network setup. Leave empty for none."
   default     = ""
 }
