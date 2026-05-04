@@ -10,8 +10,8 @@ resource "vultr_instance" "this" {
   hostname          = var.hostname != "" ? var.hostname : var.label
   ssh_key_ids       = var.ssh_key_ids
   tags              = var.tags
-  firewall_group_id = var.firewall_group_id != "" ? var.firewall_group_id : null
-  vpc_ids           = length(var.vpc_ids) > 0 ? var.vpc_ids : []
+  firewall_group_id = null
+  vpc_ids           = []
 
   user_data = null
 }
