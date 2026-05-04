@@ -8,7 +8,7 @@ resource "vultr_instance" "this" {
   os_id             = var.os_id
   label             = var.label
   hostname          = var.hostname != "" ? var.hostname : var.label
-  ssh_key_ids       = var.ssh_key_ids
+  ssh_key_ids       = []
   tags              = var.tags
   firewall_group_id = null
   vpc_ids           = []
