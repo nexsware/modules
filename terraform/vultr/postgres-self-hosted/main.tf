@@ -10,17 +10,8 @@ resource "vultr_instance" "this" {
   hostname          = var.hostname != "" ? var.hostname : var.label
   ssh_key_ids       = var.ssh_key_ids
   tags              = var.tags
-  firewall_group_id = var.firewall_group_id != "" ? var.firewall_group_id : null
-  vpc_ids           = length(var.vpc_ids) > 0 ? var.vpc_ids : []
+  firewall_group_id = null
+  vpc_ids           = []
 
-  user_data = base64encode(templatefile("${path.module}/cloud-init.yaml.tmpl", {
-    postgres_version  = var.postgres_version
-    postgres_password = var.postgres_password
-    listen_address    = var.listen_address
-    port              = var.port
-    private_ip        = var.private_ip
-    db_subnet         = var.db_subnet
-    databases         = var.databases
-    database_users    = var.database_users
-  }))
+  user_data = null
 }
