@@ -75,11 +75,6 @@ on:
         required: false
         type: string
         default: ''
-      ssh_key_ids:
-        description: 'Comma-separated Vultr SSH key IDs to authorize on the instance'
-        required: false
-        type: string
-        default: ''
       environment:
         description: 'Deployment environment (e.g., test, prod)'
         required: true
@@ -101,6 +96,9 @@ on:
         required: false
       SERVICE_ACCOUNT_PASSWORD:
         description: 'Password for the service account user'
+        required: false
+      BASTION_SSH_KEY_ID:
+        description: 'Vultr SSH key ID of the bastion host — authorizes the bastion to SSH into this instance'
         required: false
     outputs:
       instance_id:
@@ -157,19 +155,11 @@ jobs:
             echo "vpc_ids_json=$JSON" >> $GITHUB_OUTPUT
           fi
 
-          # Convert comma-separated ssh_key_ids to JSON array
-          if [ -z "${{ inputs.ssh_key_ids }}" ]; then
+          # Build ssh_key_ids JSON array from BASTION_SSH_KEY_ID secret
+          if [ -z "${{ secrets.BASTION_SSH_KEY_ID }}" ]; then
             echo "ssh_key_ids_json=[]" >> $GITHUB_OUTPUT
           else
-            IFS=',' read -ra IDS <<< "${{ inputs.ssh_key_ids }}"
-            JSON="["
-            for i in "${!IDS[@]}"; do
-              ID=$(echo "${IDS[$i]}" | xargs)
-              JSON+="\"${ID}\""
-              [ $i -lt $(( ${#IDS[@]} - 1 )) ] && JSON+=","
-            done
-            JSON+="]"
-            echo "ssh_key_ids_json=$JSON" >> $GITHUB_OUTPUT
+            echo "ssh_key_ids_json=[\"${{ secrets.BASTION_SSH_KEY_ID }}\"]" >> $GITHUB_OUTPUT
           fi
 
           # Convert comma-separated databases to JSON array
