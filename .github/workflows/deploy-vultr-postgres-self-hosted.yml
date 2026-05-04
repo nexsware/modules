@@ -70,7 +70,7 @@ on:
         required: false
         type: string
         default: ''
-      vpc2_ids:
+      vpc_ids:
         description: 'Comma-separated Vultr VPC 2.0 IDs to attach for private networking'
         required: false
         type: string
@@ -142,11 +142,11 @@ jobs:
       - name: Prepare List Inputs
         id: prepare-lists
         run: |
-          # Convert comma-separated vpc2_ids to JSON array
-          if [ -z "${{ inputs.vpc2_ids }}" ]; then
-            echo "vpc2_ids_json=[]" >> $GITHUB_OUTPUT
+          # Convert comma-separated vpc_ids to JSON array
+          if [ -z "${{ inputs.vpc_ids }}" ]; then
+            echo "vpc_ids_json=[]" >> $GITHUB_OUTPUT
           else
-            IFS=',' read -ra IDS <<< "${{ inputs.vpc2_ids }}"
+            IFS=',' read -ra IDS <<< "${{ inputs.vpc_ids }}"
             JSON="["
             for i in "${!IDS[@]}"; do
               ID=$(echo "${IDS[$i]}" | xargs)
@@ -154,7 +154,7 @@ jobs:
               [ $i -lt $(( ${#IDS[@]} - 1 )) ] && JSON+=","
             done
             JSON+="]"
-            echo "vpc2_ids_json=$JSON" >> $GITHUB_OUTPUT
+            echo "vpc_ids_json=$JSON" >> $GITHUB_OUTPUT
           fi
 
           # Convert comma-separated ssh_key_ids to JSON array
@@ -226,7 +226,7 @@ jobs:
             "databases": ${{ steps.prepare-lists.outputs.databases_json }},
             "database_users": ${{ steps.prepare-users.outputs.users_json }},
             "firewall_group_id": "${{ inputs.firewall_group_id }}",
-            "vpc2_ids": ${{ steps.prepare-lists.outputs.vpc2_ids_json }},
+            "vpc_ids": ${{ steps.prepare-lists.outputs.vpc_ids_json }},
             "ssh_key_ids": ${{ steps.prepare-lists.outputs.ssh_key_ids_json }},
             "tags": ["${{ inputs.environment }}"]
           }

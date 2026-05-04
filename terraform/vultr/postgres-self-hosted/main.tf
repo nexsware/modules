@@ -11,7 +11,7 @@ resource "vultr_instance" "this" {
   ssh_key_ids       = var.ssh_key_ids
   tags              = var.tags
   firewall_group_id = var.firewall_group_id != "" ? var.firewall_group_id : null
-  vpc2_ids          = length(var.vpc2_ids) > 0 ? var.vpc2_ids : []
+  vpc_ids           = length(var.vpc_ids) > 0 ? var.vpc_ids : []
 
   user_data = templatefile("${path.module}/cloud-init.yaml.tmpl", {
     postgres_version  = var.postgres_version

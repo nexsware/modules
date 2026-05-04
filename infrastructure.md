@@ -28,7 +28,7 @@ Dependencies determine the order. Create resources in this sequence:
 | 2 | Postgres (self-hosted) | VPC + Firewall | Instance with Postgres installed via cloud-init |
 | 2 | Object Storage | — | Fully independent; run in parallel |
 | 2 | Instance | VPC + Firewall | API servers, Docker hosts |
-| 3 | Nginx | VPC + Firewall | Pass `vpc_id` → `vpc2_ids`, `firewall_id` → `firewall_group_id` |
+| 3 | Nginx | VPC + Firewall | Pass `vpc_id` → `vpc_ids`, `firewall_id` → `firewall_group_id` |
 
 ## Managed vs Self-Hosted PostgreSQL
 
@@ -156,7 +156,7 @@ Creates a Vultr compute instance pre-configured with nginx as a reverse proxy vi
 | `tags` | no | `[]` | Instance tags |
 | `enable_ipv6` | no | `false` | Enable IPv6 |
 | `firewall_group_id` | no | `""` | Firewall group to attach |
-| `vpc2_ids` | no | `[]` | VPC 2.0 IDs for private networking |
+| `vpc_ids` | no | `[]` | VPC 2.0 IDs for private networking |
 | `certbot_email` | no | `""` | Let's Encrypt email (defaults to `admin@<server_name>`) |
 | `proxy_upstreams` | no | `[{/api/ → 127.0.0.1:5000}, {/hubs/ → 127.0.0.1:5000}]` | Ordered list of `{path, backend}` proxy rules |
 | `static_root` | no | `/var/www/html` | Path for static file serving |
@@ -184,7 +184,7 @@ General-purpose compute instance. Use this for API servers, Docker hosts, or any
 | `tags` | no | `[]` | Instance tags |
 | `enable_ipv6` | no | `false` | Enable IPv6 |
 | `firewall_group_id` | no | `""` | Firewall group to attach |
-| `vpc2_ids` | no | `[]` | VPC 2.0 IDs for private networking |
+| `vpc_ids` | no | `[]` | VPC 2.0 IDs for private networking |
 | `user_data` | no | `""` | Cloud-init user data (raw string) |
 
 **Outputs:** `id`, `ip_address`, `internal_ip`, `label`, `region`, `plan`, `status`, `os_id`
@@ -213,7 +213,7 @@ Provisions a compute instance and installs PostgreSQL via cloud-init. No separat
 | `database_users` | no | `{}` | Map of `{username: {password, roles}}` *(sensitive)* |
 | `ssh_key_ids` | no | `[]` | Vultr SSH key IDs to authorize |
 | `firewall_group_id` | no | `""` | Firewall group to attach |
-| `vpc2_ids` | no | `[]` | VPC 2.0 IDs for private networking |
+| `vpc_ids` | no | `[]` | VPC 2.0 IDs for private networking |
 | `tags` | no | `[]` | Instance tags |
 
 Connections from `10.0.0.0/8` (all VPC ranges) and `127.0.0.1` are allowed by default via `pg_hba.conf`.
@@ -310,7 +310,7 @@ Two-phase apply: creates the cluster first, whitelists the runner IP via the Vul
 | `plan` | no | `vhp-2c-4gb-intel` | Plan slug |
 | `certbot_email` | no | `""` | Let's Encrypt email |
 | `firewall_group_id` | no | `""` | Firewall group ID |
-| `vpc2_ids` | no | `""` | Comma-separated VPC 2.0 IDs |
+| `vpc_ids` | no | `""` | Comma-separated VPC 2.0 IDs |
 | `ssh_key_ids` | no | `""` | Comma-separated Vultr SSH key IDs |
 | `proxy_upstreams` | no | `/api/` + `/hubs/` → `127.0.0.1:5000` | JSON array of `{path, backend}` |
 | `environment` | yes | — | GitHub environment |
@@ -332,7 +332,7 @@ General-purpose instance — API servers, Docker hosts, etc. Use `deploy-vultr-n
 | `plan` | no | `vhp-2c-4gb-intel` | Plan slug |
 | `hostname` | no | `""` | Defaults to label |
 | `firewall_group_id` | no | `""` | Firewall group ID |
-| `vpc2_ids` | no | `""` | Comma-separated VPC 2.0 IDs |
+| `vpc_ids` | no | `""` | Comma-separated VPC 2.0 IDs |
 | `ssh_key_ids` | no | `""` | Comma-separated Vultr SSH key IDs |
 | `user_data` | no | `""` | Cloud-init user data (raw string) |
 | `environment` | yes | — | GitHub environment |
@@ -359,7 +359,7 @@ Provisions a compute instance with PostgreSQL installed via cloud-init. Waits fo
 | `databases` | no | `""` | Comma-separated databases to create |
 | `service_account_username` | no | `srv_account` | Service account username |
 | `firewall_group_id` | no | `""` | Firewall group ID |
-| `vpc2_ids` | no | `""` | Comma-separated VPC 2.0 IDs |
+| `vpc_ids` | no | `""` | Comma-separated VPC 2.0 IDs |
 | `ssh_key_ids` | no | `""` | Comma-separated Vultr SSH key IDs |
 | `environment` | yes | — | GitHub environment |
 | `terraform_dir` | no | `modules/terraform/vultr/postgres-self-hosted` | Terraform directory |

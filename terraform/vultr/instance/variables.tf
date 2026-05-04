@@ -55,9 +55,9 @@ variable "firewall_group_id" {
   default     = ""
 }
 
-variable "vpc2_ids" {
+variable "vpc_ids" {
   type        = list(string)
-  description = "VPC 2.0 IDs to attach for private networking"
+  description = "VPC IDs to attach for private networking"
   default     = []
 }
 

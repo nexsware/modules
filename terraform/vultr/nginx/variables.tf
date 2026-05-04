@@ -55,9 +55,9 @@ variable "firewall_group_id" {
   default     = ""
 }
 
-variable "vpc2_ids" {
+variable "vpc_ids" {
   type        = list(string)
-  description = "VPC 2.0 IDs to attach so nginx can reach backend services over private network"
+  description = "VPC IDs to attach so nginx can reach backend services over private network"
   default     = []
 }
 
