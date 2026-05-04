@@ -13,9 +13,9 @@ resource "vultr_instance" "this" {
   enable_ipv6       = var.enable_ipv6
   firewall_group_id = var.firewall_group_id != "" ? var.firewall_group_id : null
   vpc_ids           = length(var.vpc_ids) > 0 ? var.vpc_ids : []
-  user_data = templatefile("${path.module}/cloud-init.yaml.tmpl", {
+  user_data = base64encode(templatefile("${path.module}/cloud-init.yaml.tmpl", {
     private_ip      = var.private_ip
     instance_subnet = var.instance_subnet
     user_data       = var.user_data
-  })
+  }))
 }

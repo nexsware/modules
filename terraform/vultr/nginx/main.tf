@@ -14,11 +14,11 @@ resource "vultr_instance" "this" {
   firewall_group_id = var.firewall_group_id != "" ? var.firewall_group_id : null
   vpc_ids           = length(var.vpc_ids) > 0 ? var.vpc_ids : []
 
-  user_data = templatefile("${path.module}/cloud-init.yaml.tmpl", {
+  user_data = base64encode(templatefile("${path.module}/cloud-init.yaml.tmpl", {
     server_name        = var.server_name
     certbot_email      = var.certbot_email != "" ? var.certbot_email : "admin@${var.server_name}"
     proxy_upstreams    = var.proxy_upstreams
     static_root        = var.static_root
     proxy_read_timeout = var.proxy_read_timeout
-  })
+  }))
 }
