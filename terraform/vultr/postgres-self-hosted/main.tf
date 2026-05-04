@@ -13,7 +13,7 @@ resource "vultr_instance" "this" {
   firewall_group_id = var.firewall_group_id != "" ? var.firewall_group_id : null
   vpc_ids           = length(var.vpc_ids) > 0 ? var.vpc_ids : []
 
-  user_data = base64encode(templatefile("${path.module}/cloud-init.yaml.tmpl", {
+  user_data = templatefile("${path.module}/cloud-init.yaml.tmpl", {
     postgres_version  = var.postgres_version
     postgres_password = var.postgres_password
     listen_address    = var.listen_address
@@ -22,5 +22,5 @@ resource "vultr_instance" "this" {
     db_subnet         = var.db_subnet
     databases         = var.databases
     database_users    = var.database_users
-  }))
+  })
 }
