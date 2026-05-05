@@ -9,8 +9,8 @@ output "ip_address" {
 }
 
 output "internal_ip" {
-  description = "The private/internal IP address within attached VPCs"
-  value       = vultr_instance.this.internal_ip
+  description = "The private IP address within attached VPCs — reflects static IP if set, otherwise Vultr's DHCP assignment"
+  value       = var.private_ip != "" ? var.private_ip : vultr_instance.this.internal_ip
 }
 
 output "label" {
