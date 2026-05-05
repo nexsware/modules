@@ -48,8 +48,8 @@ Vultr requires `ip_block` to be specified — it is not auto-assigned. Use these
 
 | Environment | `ip_block` | `prefix_length` | CIDR |
 |-------------|-----------|----------------|------|
-| prod | `10.0.0.0` | `24` | `10.0.0.0/24` |
-| test | `10.1.0.0` | `24` | `10.1.0.0/24` |
+| test | `10.0.0.0` | `24` | `10.0.0.0/24` |
+| prod | `10.1.0.0` | `24` | `10.1.0.0/24` |
 
 Each `/24` provides 254 usable addresses. Reserve `10.2.0.0/24` and above for future environments.
 

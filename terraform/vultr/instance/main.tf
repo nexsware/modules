@@ -15,6 +15,7 @@ resource "vultr_instance" "this" {
   vpc_ids           = length(var.vpc_ids) > 0 ? var.vpc_ids : []
   user_data = templatefile("${path.module}/cloud-init.yaml.tmpl", {
     private_ip      = var.private_ip
+    vpc_cidr        = var.vpc_cidr
     instance_subnet = var.instance_subnet
     user_data       = var.user_data
   })
