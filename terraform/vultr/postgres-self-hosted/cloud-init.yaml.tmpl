@@ -25,11 +25,9 @@ write_files:
             dhcp4: false
             addresses:
               - ${private_ip}/$SUBNET_PREFIX
-            %{ if vpc_cidr != "" ~}
             routes:
               - to: ${vpc_cidr}
                 on-link: true
-            %{ endif ~}
       NETEOF
       chmod 600 /etc/netplan/99-vpc-static.yaml
       netplan apply
@@ -53,6 +51,12 @@ write_files:
       PGEOF
 
       systemctl restart postgresql
+
+      # Wait for PostgreSQL to be ready
+      for i in $(seq 1 30); do
+        sudo -u postgres psql -c "SELECT 1" >/dev/null 2>&1 && break
+        sleep 2
+      done
 
       # Set postgres superuser password
       sudo -u postgres psql -c "ALTER USER postgres PASSWORD '${postgres_password}';"
