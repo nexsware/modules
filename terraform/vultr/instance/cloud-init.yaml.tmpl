@@ -24,6 +24,11 @@ write_files:
       NETEOF
       chmod 600 /etc/netplan/99-vpc-static.yaml
       netplan apply
+      # Remove Vultr's DHCP-assigned IP — netplan apply stops future renewals but
+      # doesn't flush the existing lease, so we do it explicitly
+      ip -4 addr show dev $VPC_IFACE | grep 'inet ' | awk '{print $2}' | grep -v "^${private_ip}/" | while read -r old_ip; do
+        ip addr del "$old_ip" dev $VPC_IFACE 2>/dev/null || true
+      done
       %{ endif ~}
 
       %{ if user_data != "" ~}
