@@ -53,6 +53,18 @@ on:
         description: 'Deployment environment (e.g., test, prod)'
         required: true
         type: string
+      state_key:
+        description: 'Unique key for this resource in the state bucket (e.g., test/nginx)'
+        required: true
+        type: string
+      state_bucket:
+        description: 'Vultr Object Storage bucket name for Terraform state'
+        required: true
+        type: string
+      state_endpoint:
+        description: 'Vultr Object Storage S3 endpoint URL (e.g., https://ewr1.vultrobjects.com)'
+        required: true
+        type: string
       terraform_dir:
         description: 'Directory containing Terraform configuration'
         required: false
@@ -61,6 +73,12 @@ on:
     secrets:
       VULTR_API_KEY:
         description: 'Vultr API Key'
+        required: true
+      VULTR_OBJECT_STORAGE_ACCESS_KEY:
+        description: 'Vultr Object Storage access key for Terraform state backend'
+        required: true
+      VULTR_OBJECT_STORAGE_SECRET_KEY:
+        description: 'Vultr Object Storage secret key for Terraform state backend'
         required: true
     outputs:
       instance_id:
@@ -153,7 +171,18 @@ jobs:
 
       - name: Terraform Init
         working-directory: ${{ inputs.terraform_dir }}
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ inputs.state_bucket }}" \
+            -backend-config="key=${{ inputs.state_key }}/terraform.tfstate" \
+            -backend-config="endpoint=${{ inputs.state_endpoint }}" \
+            -backend-config="access_key=${{ secrets.VULTR_OBJECT_STORAGE_ACCESS_KEY }}" \
+            -backend-config="secret_key=${{ secrets.VULTR_OBJECT_STORAGE_SECRET_KEY }}" \
+            -backend-config="region=us-east-1" \
+            -backend-config="skip_credentials_validation=true" \
+            -backend-config="skip_metadata_api_check=true" \
+            -backend-config="skip_region_validation=true" \
+            -backend-config="force_path_style=true"
 
       - name: Terraform Apply
         id: terraform-apply
