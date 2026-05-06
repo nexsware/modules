@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       firewall_type:
-        description: 'Type of firewall: "web" (80,443 public), "api" (app port from app subnet), "database" (5432 from app subnet), "custom" (no extra ports). SSH is controlled separately by enable_ssh'
+        description: 'Type of firewall: "web" (80,443 public), "api" (app port from app subnet), "database" (5432 from app subnet), "custom" (no extra ports). SSH controlled by enable_ssh. Add bastion_subnet to also allow app_port from bastion (e.g. for DB tunneling).'
         required: false
         type: string
         default: 'web'
@@ -32,6 +32,11 @@ on:
         required: false
         type: string
         default: '5000'
+      bastion_subnet:
+        description: 'Bastion subnet CIDR — when provided, adds an extra rule allowing the bastion to reach app_port (e.g. for SSH tunneling to the database). Leave empty to skip.'
+        required: false
+        type: string
+        default: ''
       environment:
         description: 'Deployment environment (e.g., test, prod)'
         required: false
@@ -118,6 +123,13 @@ jobs:
           elif [ "$FIREWALL_TYPE" = "database" ]; then
             RULES=$(echo "$RULES" | jq -c --arg subnet "${{ inputs.app_subnet }}" '. + [
               {"label":"allow-postgres","protocol":"tcp","network":$subnet,"port":"5432","ip_type":"v4"}
+            ]')
+          fi
+
+          # Allow bastion subnet to reach app_port (e.g. for SSH tunneling to database)
+          if [ -n "${{ inputs.bastion_subnet }}" ]; then
+            RULES=$(echo "$RULES" | jq -c --arg subnet "${{ inputs.bastion_subnet }}" --arg port "${{ inputs.app_port }}" '. + [
+              {"label":"allow-bastion","protocol":"tcp","network":$subnet,"port":$port,"ip_type":"v4"}
             ]')
           fi
 
