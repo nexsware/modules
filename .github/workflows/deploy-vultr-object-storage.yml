@@ -7,6 +7,10 @@ on:
         description: 'Vultr Object Storage cluster ID for the target region'
         required: true
         type: number
+      tier_id:
+        description: 'Vultr Object Storage performance tier ID (e.g., 1 for Performance)'
+        required: true
+        type: number
       label:
         description: 'Label for the object storage instance'
         required: true
@@ -89,6 +93,7 @@ jobs:
           {
             "vultr_api_key": "${{ secrets.VULTR_API_KEY }}",
             "cluster_id": ${{ inputs.cluster_id }},
+            "tier_id": ${{ inputs.tier_id }},
             "label": "${{ inputs.label }}"
           }
           EOF
