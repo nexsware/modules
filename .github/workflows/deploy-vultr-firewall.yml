@@ -175,18 +175,24 @@ jobs:
 
       - name: Terraform Init
         working-directory: ${{ inputs.terraform_dir }}
+        env:
+          ACCESS_KEY: ${{ secrets.VULTR_OBJECT_STORAGE_ACCESS_KEY }}
+          SECRET_KEY: ${{ secrets.VULTR_OBJECT_STORAGE_SECRET_KEY }}
         run: |
-          terraform init \
-            -backend-config="bucket=${{ inputs.state_bucket }}" \
-            -backend-config="key=${{ inputs.state_key }}/terraform.tfstate" \
-            -backend-config="endpoint=${{ inputs.state_endpoint }}" \
-            -backend-config="access_key=${{ secrets.VULTR_OBJECT_STORAGE_ACCESS_KEY }}" \
-            -backend-config="secret_key=${{ secrets.VULTR_OBJECT_STORAGE_SECRET_KEY }}" \
-            -backend-config="region=us-east-1" \
-            -backend-config="skip_credentials_validation=true" \
-            -backend-config="skip_metadata_api_check=true" \
-            -backend-config="skip_region_validation=true" \
-            -backend-config="force_path_style=true"
+          cat > backend.tfbackend <<EOF
+          bucket                      = "${{ inputs.state_bucket }}"
+          key                         = "${{ inputs.state_key }}/terraform.tfstate"
+          endpoints                   = { s3 = "${{ inputs.state_endpoint }}" }
+          access_key                  = "$ACCESS_KEY"
+          secret_key                  = "$SECRET_KEY"
+          region                      = "us-east-1"
+          skip_credentials_validation = true
+          skip_metadata_api_check     = true
+          skip_region_validation      = true
+          skip_requesting_account_id  = true
+          use_path_style              = true
+          EOF
+          terraform init -backend-config=backend.tfbackend
 
       - name: Terraform Apply
         id: terraform-apply
