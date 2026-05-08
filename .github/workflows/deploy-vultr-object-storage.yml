@@ -16,17 +16,20 @@ on:
         required: true
         type: string
       state_key:
-        description: 'Unique key for this resource in the state bucket (e.g., test/object-storage)'
-        required: true
+        description: 'Unique key for this resource in the state bucket (e.g., test/object-storage). Leave empty to use local state (bootstrap run).'
+        required: false
         type: string
+        default: ''
       state_bucket:
-        description: 'Vultr Object Storage bucket name for Terraform state'
-        required: true
+        description: 'Vultr Object Storage bucket name for Terraform state. Leave empty to use local state (bootstrap run).'
+        required: false
         type: string
+        default: ''
       state_endpoint:
-        description: 'Vultr Object Storage S3 endpoint URL (e.g., https://ewr1.vultrobjects.com)'
-        required: true
+        description: 'Vultr Object Storage S3 endpoint URL (e.g., https://ewr1.vultrobjects.com). Leave empty to use local state (bootstrap run).'
+        required: false
         type: string
+        default: ''
       terraform_dir:
         description: 'Directory containing Terraform configuration'
         required: false
@@ -37,11 +40,11 @@ on:
         description: 'Vultr API Key'
         required: true
       VULTR_OBJECT_STORAGE_ACCESS_KEY:
-        description: 'Vultr Object Storage access key for Terraform state backend'
-        required: true
+        description: 'Vultr Object Storage access key for Terraform state backend (only required when state_bucket is provided)'
+        required: false
       VULTR_OBJECT_STORAGE_SECRET_KEY:
-        description: 'Vultr Object Storage secret key for Terraform state backend'
-        required: true
+        description: 'Vultr Object Storage secret key for Terraform state backend (only required when state_bucket is provided)'
+        required: false
     outputs:
       storage_id:
         description: 'The ID of the created object storage instance'
@@ -100,17 +103,21 @@ jobs:
       - name: Terraform Init
         working-directory: ${{ inputs.terraform_dir }}
         run: |
-          terraform init \
-            -backend-config="bucket=${{ inputs.state_bucket }}" \
-            -backend-config="key=${{ inputs.state_key }}/terraform.tfstate" \
-            -backend-config="endpoint=${{ inputs.state_endpoint }}" \
-            -backend-config="access_key=${{ secrets.VULTR_OBJECT_STORAGE_ACCESS_KEY }}" \
-            -backend-config="secret_key=${{ secrets.VULTR_OBJECT_STORAGE_SECRET_KEY }}" \
-            -backend-config="region=us-east-1" \
-            -backend-config="skip_credentials_validation=true" \
-            -backend-config="skip_metadata_api_check=true" \
-            -backend-config="skip_region_validation=true" \
-            -backend-config="force_path_style=true"
+          if [ -n "${{ inputs.state_bucket }}" ]; then
+            terraform init \
+              -backend-config="bucket=${{ inputs.state_bucket }}" \
+              -backend-config="key=${{ inputs.state_key }}/terraform.tfstate" \
+              -backend-config="endpoint=${{ inputs.state_endpoint }}" \
+              -backend-config="access_key=${{ secrets.VULTR_OBJECT_STORAGE_ACCESS_KEY }}" \
+              -backend-config="secret_key=${{ secrets.VULTR_OBJECT_STORAGE_SECRET_KEY }}" \
+              -backend-config="region=us-east-1" \
+              -backend-config="skip_credentials_validation=true" \
+              -backend-config="skip_metadata_api_check=true" \
+              -backend-config="skip_region_validation=true" \
+              -backend-config="force_path_style=true"
+          else
+            terraform init -backend=false
+          fi
 
       - name: Terraform Apply
         id: terraform-apply
