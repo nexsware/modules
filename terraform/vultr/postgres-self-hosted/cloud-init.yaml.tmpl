@@ -40,6 +40,10 @@ write_files:
       done
       %{ endif ~}
 
+      # Allow PostgreSQL connections from VPC subnets through UFW
+      ufw allow from ${app_subnet} to any port ${port} proto tcp
+      ufw allow from ${bastion_subnet} to any port ${port} proto tcp
+
       # Set listen address and port
       cat >> "$PGCONF/postgresql.conf" <<PGEOF
       listen_addresses = '${listen_address}'
