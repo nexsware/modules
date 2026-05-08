@@ -53,15 +53,12 @@ on:
       storage_id:
         description: 'The ID of the created object storage instance'
         value: ${{ jobs.deploy-object-storage.outputs.storage_id }}
-      s3_hostname:
-        description: 'S3-compatible endpoint hostname'
-        value: ${{ jobs.deploy-object-storage.outputs.s3_hostname }}
-      s3_access_key:
-        description: 'S3 access key (treat as secret)'
-        value: ${{ jobs.deploy-object-storage.outputs.s3_access_key }}
-      s3_secret_key:
-        description: 'S3 secret key (treat as secret)'
-        value: ${{ jobs.deploy-object-storage.outputs.s3_secret_key }}
+      region:
+        description: 'The region where the object storage instance is deployed'
+        value: ${{ jobs.deploy-object-storage.outputs.region }}
+      status:
+        description: 'The status of the object storage instance'
+        value: ${{ jobs.deploy-object-storage.outputs.status }}
 
 jobs:
   deploy-object-storage:
@@ -70,9 +67,8 @@ jobs:
     environment: ${{ inputs.environment }}
     outputs:
       storage_id: ${{ steps.terraform-apply.outputs.storage_id }}
-      s3_hostname: ${{ steps.terraform-apply.outputs.s3_hostname }}
-      s3_access_key: ${{ steps.terraform-apply.outputs.s3_access_key }}
-      s3_secret_key: ${{ steps.terraform-apply.outputs.s3_secret_key }}
+      region: ${{ steps.terraform-apply.outputs.region }}
+      status: ${{ steps.terraform-apply.outputs.status }}
     steps:
       - name: Checkout Terraform Modules
         uses: actions/checkout@v4
@@ -133,16 +129,14 @@ jobs:
         run: |
           terraform apply -auto-approve
           echo "storage_id=$(terraform output -raw id)" >> $GITHUB_OUTPUT
-          echo "s3_hostname=$(terraform output -raw s3_hostname)" >> $GITHUB_OUTPUT
-          echo "s3_access_key=$(terraform output -raw s3_access_key)" >> $GITHUB_OUTPUT
-          echo "s3_secret_key=$(terraform output -raw s3_secret_key)" >> $GITHUB_OUTPUT
+          echo "region=$(terraform output -raw region)" >> $GITHUB_OUTPUT
+          echo "status=$(terraform output -raw status)" >> $GITHUB_OUTPUT
 
       - name: Display Object Storage Info
         run: |
           echo "=== Vultr Object Storage Provisioned ==="
-          echo "Storage ID:   ${{ steps.terraform-apply.outputs.storage_id }}"
-          echo "Label:        ${{ inputs.label }}"
-          echo "S3 Endpoint:  ${{ steps.terraform-apply.outputs.s3_hostname }}"
-          echo "Access Key:   ${{ steps.terraform-apply.outputs.s3_access_key }}"
-          echo "(Secret key available as workflow output — treat as secret)"
+          echo "Storage ID: ${{ steps.terraform-apply.outputs.storage_id }}"
+          echo "Label:      ${{ inputs.label }}"
+          echo "Region:     ${{ steps.terraform-apply.outputs.region }}"
+          echo "Status:     ${{ steps.terraform-apply.outputs.status }}"
           echo "========================================"
