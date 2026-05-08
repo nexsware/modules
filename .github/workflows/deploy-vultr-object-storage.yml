@@ -104,6 +104,9 @@ jobs:
         working-directory: ${{ inputs.terraform_dir }}
         run: |
           if [ -n "${{ inputs.state_bucket }}" ]; then
+            cat > backend.tf <<'EOF'
+          terraform { backend "s3" {} }
+          EOF
             terraform init \
               -backend-config="bucket=${{ inputs.state_bucket }}" \
               -backend-config="key=${{ inputs.state_key }}/terraform.tfstate" \
@@ -116,7 +119,7 @@ jobs:
               -backend-config="skip_region_validation=true" \
               -backend-config="force_path_style=true"
           else
-            terraform init -backend=false
+            terraform init
           fi
 
       - name: Terraform Apply
