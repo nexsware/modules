@@ -55,8 +55,9 @@ on:
         type: string
       state_bucket:
         description: 'Vultr Object Storage bucket name for Terraform state'
-        required: true
+        required: false
         type: string
+        default: 'nexsware-terraform-state'
       terraform_dir:
         description: 'Directory containing Terraform configuration'
         required: false
