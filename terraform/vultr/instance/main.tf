@@ -19,4 +19,8 @@ resource "vultr_instance" "this" {
     db_subnet       = var.db_subnet
     user_data       = var.user_data
   })
+
+  lifecycle {
+    ignore_changes = [user_data]
+  }
 }

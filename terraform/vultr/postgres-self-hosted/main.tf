@@ -25,4 +25,8 @@ resource "vultr_instance" "this" {
     databases         = var.databases
     database_users    = var.database_users
   })
+
+  lifecycle {
+    ignore_changes = [user_data]
+  }
 }
