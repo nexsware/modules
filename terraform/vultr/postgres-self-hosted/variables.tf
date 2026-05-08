@@ -91,6 +91,18 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/24"
 }
 
+variable "bastion_subnet" {
+  type        = string
+  description = "CIDR of the bastion subnet — a route is added so the database can reach the bastion (e.g., 10.0.0.128/26)"
+  default     = "10.0.0.128/26"
+}
+
+variable "app_subnet" {
+  type        = string
+  description = "CIDR of the app subnet — a route is added so the database can reach app servers (e.g., 10.0.0.0/26)"
+  default     = "10.0.0.0/26"
+}
+
 variable "db_subnet" {
   type        = string
   description = "CIDR of the subnet within the VPC where this database instance is placed (e.g., 10.0.0.64/26)"

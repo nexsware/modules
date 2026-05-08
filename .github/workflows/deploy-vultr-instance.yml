@@ -40,13 +40,13 @@ on:
         required: false
         type: string
         default: ''
-      vpc_cidr:
-        description: 'CIDR of the VPC this instance is deployed into (e.g., 10.0.0.0/24)'
-        required: false
-        type: string
-        default: '10.0.0.0/24'
       instance_subnet:
         description: 'CIDR of the subnet within the VPC where this instance is placed (e.g., 10.0.0.128/26 for bastion, 10.0.0.0/26 for app)'
+        required: false
+        type: string
+        default: ''
+      db_subnet:
+        description: 'CIDR of the database subnet — a route is added so this instance can reach the database (e.g., 10.0.0.64/26). Leave empty to skip.'
         required: false
         type: string
         default: ''
@@ -176,8 +176,8 @@ jobs:
             "firewall_group_id": "${{ inputs.firewall_group_id }}",
             "vpc_ids": ${{ steps.prepare-lists.outputs.vpc_ids_json }},
             "private_ip": "${{ inputs.private_ip }}",
-            "vpc_cidr": "${{ inputs.vpc_cidr }}",
             "instance_subnet": "${{ inputs.instance_subnet }}",
+            "db_subnet": "${{ inputs.db_subnet }}",
             "ssh_key_ids": ${{ steps.prepare-lists.outputs.ssh_key_ids_json }},
             "tags": ["${{ inputs.environment }}"],
             "user_data": $USER_DATA_JSON

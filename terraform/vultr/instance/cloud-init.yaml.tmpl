@@ -21,9 +21,11 @@ write_files:
             dhcp4: false
             addresses:
               - ${private_ip}/$SUBNET_PREFIX
+%{ if db_subnet != "" ~}
             routes:
-              - to: ${vpc_cidr}
+              - to: ${db_subnet}
                 on-link: true
+%{ endif ~}
       NETEOF
       chmod 600 /etc/netplan/99-vpc-static.yaml
       netplan apply

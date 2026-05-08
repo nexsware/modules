@@ -45,16 +45,21 @@ on:
         required: false
         type: string
         default: ''
-      vpc_cidr:
-        description: 'CIDR of the VPC this instance is deployed into (e.g., 10.0.0.0/24)'
-        required: false
-        type: string
-        default: '10.0.0.0/24'
       db_subnet:
         description: 'CIDR of the subnet within the VPC where this database instance is placed (e.g., 10.0.0.64/26)'
         required: false
         type: string
         default: '10.0.0.64/26'
+      bastion_subnet:
+        description: 'CIDR of the bastion subnet — a route is added so the database can reach the bastion (e.g., 10.0.0.128/26)'
+        required: false
+        type: string
+        default: '10.0.0.128/26'
+      app_subnet:
+        description: 'CIDR of the app subnet — a route is added so the database can reach app servers (e.g., 10.0.0.0/26)'
+        required: false
+        type: string
+        default: '10.0.0.0/26'
       databases:
         description: 'Comma-separated list of databases to create'
         required: false
@@ -226,8 +231,9 @@ jobs:
             "port": ${{ inputs.port }},
             "listen_address": "${{ inputs.listen_address }}",
             "private_ip": "${{ inputs.private_ip }}",
-            "vpc_cidr": "${{ inputs.vpc_cidr }}",
             "db_subnet": "${{ inputs.db_subnet }}",
+            "bastion_subnet": "${{ inputs.bastion_subnet }}",
+            "app_subnet": "${{ inputs.app_subnet }}",
             "databases": ${{ steps.prepare-lists.outputs.databases_json }},
             "database_users": ${{ steps.prepare-users.outputs.users_json }},
             "firewall_group_id": "${{ inputs.firewall_group_id }}",

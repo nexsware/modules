@@ -26,7 +26,9 @@ write_files:
             addresses:
               - ${private_ip}/$SUBNET_PREFIX
             routes:
-              - to: ${vpc_cidr}
+              - to: ${bastion_subnet}
+                on-link: true
+              - to: ${app_subnet}
                 on-link: true
       NETEOF
       chmod 600 /etc/netplan/99-vpc-static.yaml

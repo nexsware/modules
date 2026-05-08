@@ -79,6 +79,12 @@ variable "instance_subnet" {
   default     = ""
 }
 
+variable "db_subnet" {
+  type        = string
+  description = "CIDR of the database subnet — a route is added so this instance can reach the database (e.g., 10.0.0.64/26). Leave empty to skip."
+  default     = ""
+}
+
 variable "user_data" {
   type        = string
   description = "Optional shell script to run on first boot after network setup. Leave empty for none."

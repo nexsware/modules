@@ -19,8 +19,9 @@ resource "vultr_instance" "this" {
     listen_address    = var.listen_address
     port              = var.port
     private_ip        = var.private_ip
-    vpc_cidr          = var.vpc_cidr
     db_subnet         = var.db_subnet
+    bastion_subnet    = var.bastion_subnet
+    app_subnet        = var.app_subnet
     databases         = var.databases
     database_users    = var.database_users
   })
