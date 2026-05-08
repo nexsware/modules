@@ -85,8 +85,7 @@ on:
         type: string
       state_bucket:
         description: 'Vultr Object Storage bucket name for Terraform state'
-        required: false
-        default: ''
+        required: true
         type: string
       terraform_dir:
         description: 'Directory containing Terraform configuration'
