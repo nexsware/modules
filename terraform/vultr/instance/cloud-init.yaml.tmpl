@@ -21,7 +21,7 @@ write_files:
             dhcp4: false
             addresses:
               - ${private_ip}/$SUBNET_PREFIX
-%{ if db_subnet != "" ~}
+%{ if db_subnet != "" }
             routes:
               - to: ${db_subnet}
                 on-link: true
@@ -36,7 +36,7 @@ write_files:
       done
       # Apply routes immediately — netplan apply persists them but may not add them
       # to the live routing table until reboot when the interface is already up
-%{ if db_subnet != "" ~}
+%{ if db_subnet != "" }
       ip route replace ${db_subnet} dev $VPC_IFACE 2>/dev/null || true
 %{ endif ~}
       %{ endif ~}
