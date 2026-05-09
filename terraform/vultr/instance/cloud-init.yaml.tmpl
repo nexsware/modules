@@ -8,7 +8,7 @@ write_files:
       #!/bin/bash
       set -euo pipefail
 
-      %{ if private_ip != "" ~}
+      %{ if private_ip != "" }
       # Assign static private IP to the VPC interface
       PRIMARY_IFACE=$(ip route show default | awk '/default/ {print $5; exit}')
       VPC_IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | grep -v "$PRIMARY_IFACE" | head -1)
@@ -41,7 +41,7 @@ write_files:
 %{ endif ~}
       %{ endif ~}
 
-      %{ if user_data != "" ~}
+      %{ if user_data != "" }
       ${user_data}
       %{ endif ~}
 
