@@ -12,7 +12,7 @@ write_files:
       PGVER="${postgres_version}"
       PGCONF="/etc/postgresql/$PGVER/main"
 
-      %{ if private_ip != "" ~}
+      %{ if private_ip != "" }
       # Assign static private IP to the VPC interface
       PRIMARY_IFACE=$(ip route show default | awk '/default/ {print $5; exit}')
       VPC_IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -v lo | grep -v "$PRIMARY_IFACE" | head -1)
@@ -42,7 +42,7 @@ write_files:
       # to the live routing table until reboot when the interface is already up
       ip route replace ${bastion_subnet} dev $VPC_IFACE 2>/dev/null || true
       ip route replace ${app_subnet} dev $VPC_IFACE 2>/dev/null || true
-      %{ endif ~}
+      %{ endif }
 
       # Allow PostgreSQL connections from VPC subnets through UFW
       ufw allow from ${app_subnet} to any port ${port} proto tcp
@@ -71,22 +71,22 @@ write_files:
       # Set postgres superuser password
       sudo -u postgres psql -c "ALTER USER postgres PASSWORD '${postgres_password}';"
 
-      %{ if length(databases) > 0 ~}
+      %{ if length(databases) > 0 }
       # Create databases (idempotent)
-      %{ for db in databases ~}
+      %{ for db in databases }
       if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = '${db}'" | grep -q 1; then
         sudo -u postgres psql -c "CREATE DATABASE \"${db}\""
       fi
       %{ endfor ~}
       %{ endif ~}
 
-      %{ if length(database_users) > 0 ~}
+      %{ if length(database_users) > 0 }
       # Create users and grant access (idempotent)
-      %{ for username, user in database_users ~}
+      %{ for username, user in database_users }
       if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname = '${username}'" | grep -q 1; then
         sudo -u postgres psql -c "CREATE USER \"${username}\" WITH PASSWORD '${user.password}'"
       fi
-      %{ for db in databases ~}
+      %{ for db in databases }
       sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE \"${db}\" TO \"${username}\";"
       sudo -u postgres psql -d "${db}" -c "GRANT ALL ON SCHEMA public TO \"${username}\";"
       %{ endfor ~}
