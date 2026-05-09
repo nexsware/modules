@@ -64,12 +64,14 @@ Each `/24` VPC is divided into four `/26` logical subnets. Vultr VPC is a flat L
 | `10.0.0.128/26` | `10.0.0.129` – `10.0.0.190` | Internal / bastion |
 | `10.0.0.192/26` | `10.0.0.193` – `10.0.0.254` | Reserved / future use |
 
+**Cross-subnet routing:** Although the VPC is a flat Layer 2 network, instances do not automatically route traffic to other subnets through the VPC interface — the OS only knows about its own subnet by default. The `instance` and `postgres-self-hosted` cloud-init scripts handle this: on first boot they configure a static private IP via netplan and add explicit routes for the relevant peer subnets via the VPC interface. Passing `db_subnet` to the instance module adds a route to the database subnet; `bastion_subnet` and `app_subnet` on the postgres module add routes back to those subnets.
+
 **Firewall rules that follow from this layout:**
 
 - **Nginx / UI edge** (`firewall_type: web`, `enable_ssh: false`) — ports 80/443 from `0.0.0.0/0`. No SSH — the only public-facing server; managed via Vultr console if needed.
 - **Bastion host** (`firewall_type: custom`, `enable_ssh: true`) — SSH from `0.0.0.0/0` (or restrict to known IPs via `allow_ssh_from`). The sole SSH entry point into the VPC.
 - **API servers** (`firewall_type: api`, `enable_ssh: true`, `allow_ssh_from: 10.0.0.128/26`) — app port (default `5000`) from `10.0.0.0/26` only. No public access.
-- **Database servers** (`firewall_type: database`, `enable_ssh: true`, `allow_ssh_from: 10.0.0.128/26`) — port 5432 from `10.0.0.0/26` only. No public access. Pass `app_subnet: 10.0.0.0/26`.
+- **Database servers** (`firewall_type: database`, `enable_ssh: true`, `allow_ssh_from: 10.0.0.128/26`) — port 5432 from `10.0.0.0/26` (app servers) **and** `10.0.0.128/26` (bastion, for management and SSH tunnels). No public access.
 
 For the test environment, replace the first octet pair: `10.0.x.x` → `10.1.x.x`.
 
@@ -185,6 +187,9 @@ General-purpose compute instance. Use this for API servers, Docker hosts, or any
 | `enable_ipv6` | no | `false` | Enable IPv6 |
 | `firewall_group_id` | no | `""` | Firewall group to attach |
 | `vpc_ids` | no | `[]` | VPC 2.0 IDs for private networking |
+| `private_ip` | no | `""` | Static private IP for the VPC interface (e.g., `10.0.0.129`). Leave empty for Vultr auto-assigned IP. |
+| `instance_subnet` | no | `""` | CIDR of the subnet this instance is placed in (e.g., `10.0.0.128/26`). Required when `private_ip` is set. |
+| `db_subnet` | no | `""` | CIDR of the database subnet — a static route is added via the VPC interface so this instance can reach the database. Leave empty to skip. |
 | `user_data` | no | `""` | Cloud-init user data (raw string) |
 
 **Outputs:** `id`, `ip_address`, `internal_ip`, `label`, `region`, `plan`, `status`, `os_id`
@@ -214,6 +219,10 @@ Provisions a compute instance and installs PostgreSQL via cloud-init. No separat
 | `ssh_key_ids` | no | `[]` | Vultr SSH key IDs to authorize |
 | `firewall_group_id` | no | `""` | Firewall group to attach |
 | `vpc_ids` | no | `[]` | VPC 2.0 IDs for private networking |
+| `private_ip` | no | `""` | Static private IP for the VPC interface (e.g., `10.0.0.65`). Leave empty for Vultr auto-assigned IP. |
+| `db_subnet` | no | `10.0.0.64/26` | CIDR of the subnet this database instance is placed in — used to derive the netmask for the static IP assignment. |
+| `bastion_subnet` | no | `10.0.0.128/26` | CIDR of the bastion subnet — a static route and UFW allow rule for port 5432 are added for this subnet. |
+| `app_subnet` | no | `10.0.0.0/26` | CIDR of the app subnet — a static route and UFW allow rule for port 5432 are added for this subnet. |
 | `tags` | no | `[]` | Instance tags |
 
 Connections from `10.0.0.0/8` (all VPC ranges) and `127.0.0.1` are allowed by default via `pg_hba.conf`.
@@ -253,6 +262,8 @@ All workflows are reusable (`workflow_call`) and require a `VULTR_API_KEY` secre
 | `ip_block` | no | `10.0.0.0` | Network address |
 | `prefix_length` | no | `24` | Subnet prefix |
 | `environment` | yes | — | GitHub environment |
+| `state_key` | yes | — | S3 state key for this resource (e.g., `test/vpc`) |
+| `state_bucket` | no | `nexsware-terraform-state` | Vultr Object Storage bucket name for Terraform state |
 | `terraform_dir` | no | `modules/terraform/vultr/vpc` | Terraform directory |
 
 **Outputs:** `vpc_id`, `ip_block`, `prefix_length`
@@ -269,6 +280,8 @@ All workflows are reusable (`workflow_call`) and require a `VULTR_API_KEY` secre
 | `app_subnet` | no | `10.0.0.0/26` | Subnet allowed to reach `api` and `database` ports |
 | `app_port` | no | `5000` | Port the API server listens on (used with `firewall_type: api`) |
 | `environment` | no | `production` | GitHub environment |
+| `state_key` | yes | — | S3 state key for this resource (e.g., `test/firewall`) |
+| `state_bucket` | no | `nexsware-terraform-state` | Vultr Object Storage bucket name for Terraform state |
 | `terraform_dir` | no | `modules/terraform/vultr/firewall` | Terraform directory |
 
 **Outputs:** `firewall_id`
@@ -291,6 +304,9 @@ Two-phase apply: creates the cluster first, whitelists the runner IP via the Vul
 | `maintenance_time` | no | `22:00` | Maintenance time (UTC) |
 | `databases` | no | `""` | Comma-separated extra databases |
 | `service_account_username` | no | `srv_account` | Service account username |
+| `environment` | yes | — | GitHub environment |
+| `state_key` | yes | — | S3 state key for this resource (e.g., `test/postgres`) |
+| `state_bucket` | no | `nexsware-terraform-state` | Vultr Object Storage bucket name for Terraform state |
 | `terraform_dir` | no | `modules/terraform/vultr/postgres` | Terraform directory |
 
 **Secrets:** `VULTR_API_KEY` (required), `SERVICE_ACCOUNT`, `SERVICE_ACCOUNT_PASSWORD`
@@ -314,6 +330,8 @@ Two-phase apply: creates the cluster first, whitelists the runner IP via the Vul
 | `ssh_key_ids` | no | `""` | Comma-separated Vultr SSH key IDs |
 | `proxy_upstreams` | no | `/api/` + `/hubs/` → `127.0.0.1:5000` | JSON array of `{path, backend}` |
 | `environment` | yes | — | GitHub environment |
+| `state_key` | yes | — | S3 state key for this resource (e.g., `test/nginx`) |
+| `state_bucket` | no | `nexsware-terraform-state` | Vultr Object Storage bucket name for Terraform state |
 | `terraform_dir` | no | `modules/terraform/vultr/nginx` | Terraform directory |
 
 **Outputs:** `instance_id`, `ip_address`
@@ -334,8 +352,13 @@ General-purpose instance — API servers, Docker hosts, etc. Use `deploy-vultr-n
 | `firewall_group_id` | no | `""` | Firewall group ID |
 | `vpc_ids` | no | `""` | Comma-separated VPC 2.0 IDs |
 | `ssh_key_ids` | no | `""` | Comma-separated Vultr SSH key IDs |
+| `private_ip` | no | `""` | Static private IP for the VPC interface (e.g., `10.0.0.129`). Leave empty for Vultr auto-assigned IP. |
+| `instance_subnet` | no | `""` | CIDR of the subnet this instance is placed in (e.g., `10.0.0.128/26`). Required when `private_ip` is set. |
+| `db_subnet` | no | `""` | CIDR of the database subnet — a static route is added via the VPC interface. Leave empty to skip. |
 | `user_data` | no | `""` | Cloud-init user data (raw string) |
 | `environment` | yes | — | GitHub environment |
+| `state_key` | yes | — | S3 state key for this resource (e.g., `test/bastion-vps`) |
+| `state_bucket` | no | `nexsware-terraform-state` | Vultr Object Storage bucket name for Terraform state |
 | `terraform_dir` | no | `modules/terraform/vultr/instance` | Terraform directory |
 
 **Outputs:** `instance_id`, `ip_address`, `internal_ip`
@@ -356,15 +379,20 @@ Provisions a compute instance with PostgreSQL installed via cloud-init. Waits fo
 | `postgres_version` | no | `16` | PostgreSQL major version |
 | `port` | no | `5432` | Port PostgreSQL listens on |
 | `listen_address` | no | `*` | `listen_addresses` setting |
+| `private_ip` | no | `""` | Static private IP for the VPC interface (e.g., `10.0.0.65`). Leave empty for Vultr auto-assigned IP. |
+| `db_subnet` | no | `10.0.0.64/26` | CIDR of the subnet this database instance is placed in. |
+| `bastion_subnet` | no | `10.0.0.128/26` | Bastion subnet — routes and UFW rules for port 5432 are added for this subnet. |
+| `app_subnet` | no | `10.0.0.0/26` | App subnet — routes and UFW rules for port 5432 are added for this subnet. |
 | `databases` | no | `""` | Comma-separated databases to create |
 | `service_account_username` | no | `srv_account` | Service account username |
 | `firewall_group_id` | no | `""` | Firewall group ID |
 | `vpc_ids` | no | `""` | Comma-separated VPC 2.0 IDs |
-| `ssh_key_ids` | no | `""` | Comma-separated Vultr SSH key IDs |
 | `environment` | yes | — | GitHub environment |
+| `state_key` | yes | — | S3 state key for this resource (e.g., `test/postgres-db`) |
+| `state_bucket` | no | `nexsware-terraform-state` | Vultr Object Storage bucket name for Terraform state |
 | `terraform_dir` | no | `modules/terraform/vultr/postgres-self-hosted` | Terraform directory |
 
-**Secrets:** `VULTR_API_KEY` (required), `POSTGRES_PASSWORD` (required), `SERVICE_ACCOUNT`, `SERVICE_ACCOUNT_PASSWORD`
+**Secrets:** `VULTR_API_KEY` (required), `POSTGRES_PASSWORD` (required), `BASTION_SSH_KEY_ID` (optional — authorizes the bastion to SSH into the database instance), `SERVICE_ACCOUNT`, `SERVICE_ACCOUNT_PASSWORD`
 
 **Outputs:** `instance_id`, `ip_address`, `internal_ip`, `port`
 
@@ -377,6 +405,8 @@ Provisions a compute instance with PostgreSQL installed via cloud-init. Waits fo
 | `cluster_id` | yes | — | Storage cluster ID |
 | `label` | yes | — | Storage instance label |
 | `environment` | yes | — | GitHub environment |
+| `state_key` | yes | — | S3 state key for this resource (e.g., `test/object-storage`) |
+| `state_bucket` | no | `nexsware-terraform-state` | Vultr Object Storage bucket name for Terraform state |
 | `terraform_dir` | no | `modules/terraform/vultr/object-storage` | Terraform directory |
 
 **Outputs:** `storage_id`, `s3_hostname`, `s3_access_key`, `s3_secret_key`
