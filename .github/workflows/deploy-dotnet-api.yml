@@ -246,8 +246,12 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          if ! ssh-keygen -l -f ~/.ssh/deploy_key > /dev/null 2>&1; then
+            echo "ERROR: deploy_key is invalid — check that SSH_PRIVATE_KEY secret is set in this repository"
+            exit 1
+          fi
 
           BASTION="${{ inputs.bastion_ip }}"
           if [ -n "$BASTION" ]; then
