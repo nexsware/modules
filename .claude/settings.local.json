@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.vultr.com)",
+      "WebSearch",
+      "WebFetch(domain:docs.vultr.com)",
+      "Bash(ls -la \"C:\\\\Users\\\\sinne\\\\source\\\\repos\\\\Safii\\\\Safii.Api\\\\\")",
+      "Read(//c/Users/sinne/source/repos/Safii/**)"
+    ]
+  }
+}
