@@ -66,7 +66,12 @@ on:
         type: boolean
         default: true
       server_ip:
-        description: 'Server IP address to deploy to'
+        description: 'Server IP address to deploy to (use private VPC IP when bastion_ip is set)'
+        required: false
+        type: string
+        default: ''
+      bastion_ip:
+        description: 'Bastion/jump host public IP for SSH ProxyJump (leave empty for direct SSH)'
         required: false
         type: string
         default: ''
@@ -240,14 +245,31 @@ jobs:
       - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           cat > ~/.ssh/deploy_key << 'EOF'
           ${{ secrets.SSH_PRIVATE_KEY }}
           EOF
           chmod 600 ~/.ssh/deploy_key
 
-          # Add server to known_hosts if not already present
-          if ! grep -q "${{ inputs.server_ip }}" ~/.ssh/known_hosts 2>/dev/null; then
-            ssh-keyscan -H ${{ inputs.server_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          BASTION="${{ inputs.bastion_ip }}"
+          if [ -n "$BASTION" ]; then
+            cat > ~/.ssh/config << EOF
+          Host ${{ inputs.server_ip }}
+              ProxyJump root@${BASTION}
+              IdentityFile ~/.ssh/deploy_key
+              StrictHostKeyChecking no
+              UserKnownHostsFile /dev/null
+
+          Host ${BASTION}
+              IdentityFile ~/.ssh/deploy_key
+              StrictHostKeyChecking no
+              UserKnownHostsFile /dev/null
+          EOF
+            chmod 600 ~/.ssh/config
+          else
+            if ! grep -q "${{ inputs.server_ip }}" ~/.ssh/known_hosts 2>/dev/null; then
+              ssh-keyscan -H ${{ inputs.server_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+            fi
           fi
 
       - name: Deploy Container to Server
