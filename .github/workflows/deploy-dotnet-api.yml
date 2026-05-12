@@ -123,26 +123,17 @@ on:
         required: false
 
       # Application Secrets (passed as env vars to container)
-      EMAIL_PASSWORD:
-        description: 'Email password (deprecated - use CONNECTIONSTRINGS__NEXSWARE instead)'
-        required: false
-      DATABASE_PASSWORD:
-        description: 'Database password (deprecated - use CONNECTIONSTRINGS__NEXSWARE instead)'
-        required: false
-      CONNECTIONSTRINGS__NEXSWARE:
-        description: 'Database connection string (mapped to ConnectionStrings__nexsware)'
-        required: false
-      CONNECTION_STRING_NEXSWARE:
-        description: 'Database connection string (legacy, use CONNECTIONSTRINGS__NEXSWARE)'
-        required: false
-      CONNECTION_STRING:
-        description: 'Generic database connection string'
-        required: false
-      API_KEY:
-        description: 'API key or other secrets'
-        required: false
       JWT__KEY:
         description: 'JWT signing key (mapped to Jwt__Key)'
+        required: false
+      CONNECTION_STRINGS:
+        description: 'JSON object mapping .NET ConnectionStrings key names to values — injected as ConnectionStrings__KeyName env vars'
+        required: false
+      API_KEY:
+        description: 'API key'
+        required: false
+      EMAIL_PASSWORD:
+        description: 'Email password'
         required: false
 
     outputs:
@@ -303,18 +294,6 @@ jobs:
           fi
 
           # Add secrets as environment variables if provided
-          # Support both CONNECTIONSTRINGS__NEXSWARE (new) and CONNECTION_STRING_NEXSWARE (legacy)
-          if [ -n "${{ secrets.CONNECTIONSTRINGS__NEXSWARE }}" ]; then
-            ENV_FLAGS="$ENV_FLAGS -e ConnectionStrings__nexsware='${{ secrets.CONNECTIONSTRINGS__NEXSWARE }}'"
-          elif [ -n "${{ secrets.CONNECTION_STRING_NEXSWARE }}" ]; then
-            ENV_FLAGS="$ENV_FLAGS -e ConnectionStrings__nexsware='${{ secrets.CONNECTION_STRING_NEXSWARE }}'"
-          fi
-          if [ -n "${{ secrets.CONNECTION_STRING }}" ]; then
-            ENV_FLAGS="$ENV_FLAGS -e CONNECTION_STRING='${{ secrets.CONNECTION_STRING }}'"
-          fi
-          if [ -n "${{ secrets.DATABASE_PASSWORD }}" ]; then
-            ENV_FLAGS="$ENV_FLAGS -e DATABASE_PASSWORD='${{ secrets.DATABASE_PASSWORD }}'"
-          fi
           if [ -n "${{ secrets.API_KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e API_KEY='${{ secrets.API_KEY }}'"
           fi
@@ -323,6 +302,13 @@ jobs:
           fi
           if [ -n "${{ secrets.JWT__KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e Jwt__Key='${{ secrets.JWT__KEY }}'"
+          fi
+
+          # Inject connection strings from JSON: {"KeyName":"connstr"} → -e ConnectionStrings__KeyName=...
+          if [ -n '${{ secrets.CONNECTION_STRINGS }}' ]; then
+            while IFS= read -r flag; do
+              ENV_FLAGS="$ENV_FLAGS $flag"
+            done < <(echo '${{ secrets.CONNECTION_STRINGS }}' | jq -r 'to_entries[] | "-e ConnectionStrings__\(.key)=\(.value)"')
           fi
 
           # Add ASPNETCORE_ENVIRONMENT
