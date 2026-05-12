@@ -304,11 +304,13 @@ jobs:
             ENV_FLAGS="$ENV_FLAGS -e Jwt__Key='${{ secrets.JWT__KEY }}'"
           fi
 
-          # Inject connection strings from JSON: {"KeyName":"connstr"} → -e ConnectionStrings__KeyName=...
+          # Inject connection strings from JSON: {"KeyName":"value"} → -e ConnectionStrings__KeyName='value'
           if [ -n '${{ secrets.CONNECTION_STRINGS }}' ]; then
-            while IFS= read -r flag; do
-              ENV_FLAGS="$ENV_FLAGS $flag"
-            done < <(echo '${{ secrets.CONNECTION_STRINGS }}' | jq -r 'to_entries[] | "-e ConnectionStrings__\(.key)=\(.value)"')
+            while IFS= read -r entry; do
+              key="${entry%%=*}"
+              val="${entry#*=}"
+              ENV_FLAGS="$ENV_FLAGS -e ${key}='${val}'"
+            done < <(echo '${{ secrets.CONNECTION_STRINGS }}' | jq -r 'to_entries[] | "\(.key)=\(.value)"')
           fi
 
           # Add ASPNETCORE_ENVIRONMENT
