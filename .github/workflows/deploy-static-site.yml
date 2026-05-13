@@ -1,0 +1,125 @@
+name: Deploy Static Site to Object Storage (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Deployment environment (test, prod)'
+        required: true
+        type: string
+      app_directory:
+        description: 'Directory containing the application (relative to repo root)'
+        required: false
+        type: string
+        default: '.'
+      node_version:
+        description: 'Node.js version'
+        required: false
+        type: string
+        default: '20'
+      build_command:
+        description: 'Build command'
+        required: false
+        type: string
+        default: 'npm run build'
+      dist_directory:
+        description: 'Build output directory (relative to app_directory)'
+        required: false
+        type: string
+        default: 'dist'
+      storage_endpoint:
+        description: 'S3-compatible storage endpoint hostname (e.g. ewr1.vultrobjects.com)'
+        required: true
+        type: string
+      bucket_name:
+        description: 'Object storage bucket name'
+        required: true
+        type: string
+      build_env_vars:
+        description: 'Newline-separated KEY=VALUE pairs to set as env vars before building (e.g. "VITE_API_BASE_URL=https://api.example.com")'
+        required: false
+        type: string
+        default: ''
+
+    secrets:
+      VULTR_OBJECT_STORAGE_ACCESS_KEY:
+        description: 'Object storage access key'
+        required: true
+      VULTR_OBJECT_STORAGE_SECRET_KEY:
+        description: 'Object storage secret key'
+        required: true
+
+    outputs:
+      bucket_url:
+        description: 'Direct bucket URL of the deployed site'
+        value: ${{ jobs.deploy.outputs.bucket_url }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    outputs:
+      bucket_url: ${{ steps.upload.outputs.bucket_url }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: ${{ inputs.app_directory }}/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: ${{ inputs.app_directory }}
+        run: npm ci
+
+      - name: Build Application
+        working-directory: ${{ inputs.app_directory }}
+        run: |
+          while IFS= read -r line; do
+            [ -n "$line" ] && export "$line"
+          done <<< '${{ inputs.build_env_vars }}'
+          ${{ inputs.build_command }}
+
+      - name: Configure AWS CLI
+        run: |
+          aws configure set aws_access_key_id '${{ secrets.VULTR_OBJECT_STORAGE_ACCESS_KEY }}'
+          aws configure set aws_secret_access_key '${{ secrets.VULTR_OBJECT_STORAGE_SECRET_KEY }}'
+          aws configure set default.region us-east-1
+
+      - name: Upload Static Files
+        id: upload
+        working-directory: ${{ inputs.app_directory }}
+        run: |
+          ENDPOINT="https://${{ inputs.storage_endpoint }}"
+          BUCKET="${{ inputs.bucket_name }}"
+          DIST="${{ inputs.dist_directory }}"
+
+          echo "Uploading hashed assets with long-lived cache..."
+          aws s3 sync "${DIST}/" "s3://${BUCKET}/" \
+            --endpoint-url "${ENDPOINT}" \
+            --delete \
+            --exclude "index.html" \
+            --cache-control "public, max-age=31536000, immutable"
+
+          echo "Uploading index.html with no-cache..."
+          aws s3 cp "${DIST}/index.html" "s3://${BUCKET}/index.html" \
+            --endpoint-url "${ENDPOINT}" \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --content-type "text/html"
+
+          echo "bucket_url=https://${BUCKET}.${{ inputs.storage_endpoint }}" >> $GITHUB_OUTPUT
+
+      - name: Deployment Summary
+        run: |
+          echo "## Static Site Deployed Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Bucket:** ${{ inputs.bucket_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** https://${{ inputs.bucket_name }}.${{ inputs.storage_endpoint }}" >> $GITHUB_STEP_SUMMARY
