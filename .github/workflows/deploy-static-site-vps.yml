@@ -1,0 +1,191 @@
+name: Deploy Static Site to VPS (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Deployment environment (test, prod)'
+        required: true
+        type: string
+      app_directory:
+        description: 'Directory containing the application (relative to repo root)'
+        required: false
+        type: string
+        default: '.'
+      node_version:
+        description: 'Node.js version'
+        required: false
+        type: string
+        default: '20'
+      build_command:
+        description: 'Build command'
+        required: false
+        type: string
+        default: 'npm run build'
+      dist_directory:
+        description: 'Build output directory (relative to app_directory)'
+        required: false
+        type: string
+        default: 'dist'
+      server_ip:
+        description: 'Server IP address (use private VPC IP when bastion_ip is set)'
+        required: true
+        type: string
+      bastion_ip:
+        description: 'Bastion/jump host public IP for SSH ProxyJump (leave empty for direct SSH)'
+        required: false
+        type: string
+        default: ''
+      nginx_domain:
+        description: 'Domain for nginx server_name and certbot'
+        required: true
+        type: string
+      certbot_email:
+        description: 'Email for certbot SSL certificate. Leave empty to skip SSL.'
+        required: false
+        type: string
+        default: ''
+      build_env_vars:
+        description: 'Newline-separated KEY=VALUE pairs to set as env vars before building'
+        required: false
+        type: string
+        default: ''
+
+    secrets:
+      SSH_PRIVATE_KEY:
+        description: 'SSH private key for server access'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: 'npm'
+          cache-dependency-path: ${{ inputs.app_directory }}/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: ${{ inputs.app_directory }}
+        run: npm ci
+
+      - name: Build Application
+        working-directory: ${{ inputs.app_directory }}
+        run: |
+          while IFS= read -r line; do
+            [ -n "$line" ] && export "$line"
+          done <<< '${{ inputs.build_env_vars }}'
+          ${{ inputs.build_command }}
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if ! ssh-keygen -l -f ~/.ssh/deploy_key > /dev/null 2>&1; then
+            echo "ERROR: deploy_key is invalid — check SSH_PRIVATE_KEY secret"
+            exit 1
+          fi
+
+          BASTION="${{ inputs.bastion_ip }}"
+          if [ -n "$BASTION" ]; then
+            cat > ~/.ssh/config << EOF
+          Host ${{ inputs.server_ip }}
+              ProxyJump root@${BASTION}
+              IdentityFile ~/.ssh/deploy_key
+              StrictHostKeyChecking no
+              UserKnownHostsFile /dev/null
+
+          Host ${BASTION}
+              IdentityFile ~/.ssh/deploy_key
+              StrictHostKeyChecking no
+              UserKnownHostsFile /dev/null
+          EOF
+            chmod 600 ~/.ssh/config
+          else
+            ssh-keyscan -H ${{ inputs.server_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          fi
+
+      - name: Prepare Server
+        run: |
+          SERVER_IP="${{ inputs.server_ip }}"
+          DOMAIN="${{ inputs.nginx_domain }}"
+
+          ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << ENDSSH
+          set -e
+          if ! command -v nginx &> /dev/null; then
+            apt-get update -qq
+            apt-get install -y nginx
+            systemctl enable nginx
+            systemctl start nginx
+          fi
+          mkdir -p /var/www/${DOMAIN}
+          ENDSSH
+
+      - name: Deploy Static Files
+        run: |
+          SERVER_IP="${{ inputs.server_ip }}"
+          DOMAIN="${{ inputs.nginx_domain }}"
+          DIST="${{ inputs.app_directory }}/${{ inputs.dist_directory }}"
+
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            ${DIST}/ root@${SERVER_IP}:/var/www/${DOMAIN}/
+
+      - name: Configure Nginx and SSL
+        run: |
+          SERVER_IP="${{ inputs.server_ip }}"
+          DOMAIN="${{ inputs.nginx_domain }}"
+          EMAIL="${{ inputs.certbot_email }}"
+
+          ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << ENDSSH
+          set -e
+
+          cat > /etc/nginx/sites-available/${DOMAIN} << 'NGINXEOF'
+          server {
+              listen 80;
+              server_name ${DOMAIN};
+              root /var/www/${DOMAIN};
+              index index.html;
+              location / {
+                  try_files \$uri \$uri/ /index.html;
+              }
+          }
+          NGINXEOF
+
+          ln -sf /etc/nginx/sites-available/${DOMAIN} /etc/nginx/sites-enabled/${DOMAIN}
+          rm -f /etc/nginx/sites-enabled/default
+          nginx -t
+          systemctl reload nginx
+
+          if [ -n "${EMAIL}" ]; then
+            if ! command -v certbot &> /dev/null; then
+              apt-get install -y certbot python3-certbot-nginx
+            fi
+            certbot --nginx -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive --redirect
+            systemctl reload nginx
+          fi
+          ENDSSH
+
+      - name: Cleanup SSH Key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+      - name: Deployment Summary
+        run: |
+          echo "## Static Site Deployed Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Domain:** https://${{ inputs.nginx_domain }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Server:** ${{ inputs.server_ip }}" >> $GITHUB_STEP_SUMMARY
