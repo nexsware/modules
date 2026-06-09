@@ -124,6 +124,10 @@ jobs:
 
           ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << ENDSSH
           set -e
+          # Wait for cloud-init and unattended upgrades to finish
+          while sudo fuser /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock* 2>/dev/null; do
+            sleep 5
+          done
           if ! command -v nginx &> /dev/null; then
             apt-get update -qq
             apt-get install -y nginx
