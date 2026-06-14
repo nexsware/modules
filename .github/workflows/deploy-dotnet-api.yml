@@ -272,7 +272,9 @@ jobs:
         run: |
           SERVER_IP="${{ inputs.server_ip }}"
           CONTAINER_NAME="${{ inputs.container_name != '' && inputs.container_name || format('{0}-{1}', inputs.application_name, inputs.environment) }}"
-          IMAGE_TAG="ghcr.io/${{ github.repository_owner }}/${{ inputs.image_name != '' && inputs.image_name || inputs.application_name }}:${{ inputs.environment }}"
+          IMAGE_REPOSITORY="ghcr.io/nexsware/${{ inputs.image_name != '' && inputs.image_name || inputs.application_name }}"
+          IMAGE_TAG="${{ inputs.environment }}"
+          IMAGE_REF="${IMAGE_REPOSITORY}:${IMAGE_TAG}"
           CONTAINER_PORT="${{ inputs.container_port }}"
           HOST_PORT="${{ inputs.host_port != '' && inputs.host_port || inputs.container_port }}"
           if [ "${{ inputs.setup_nginx }}" = "true" ]; then
@@ -283,7 +285,7 @@ jobs:
 
           echo "Deploying to server: $SERVER_IP (Ubuntu 24.04)"
           echo "Container name: $CONTAINER_NAME"
-          echo "Image: $IMAGE_TAG"
+          echo "Image: $IMAGE_REF"
           echo "Port mapping: $HOST_PORT:$CONTAINER_PORT"
 
           # Parse environment variables from JSON
@@ -358,7 +360,7 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
           echo "Pulling latest image..."
-          docker pull ${IMAGE_TAG}
+          docker pull ${IMAGE_REF}
 
           echo "Stopping existing container (if any)..."
           docker stop ${CONTAINER_NAME} 2>/dev/null || true
@@ -372,7 +374,7 @@ jobs:
             -e ASPNETCORE_ENVIRONMENT="${{ inputs.environment }}" \
             -e DOTNET_ENVIRONMENT="${{ inputs.environment }}" \
             ${ENV_FLAGS} \
-            ${IMAGE_TAG}
+            ${IMAGE_REF}
 
           echo "Waiting for container output..."
           sleep 10
