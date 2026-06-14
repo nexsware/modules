@@ -214,6 +214,7 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             BUILD_CONFIGURATION=${{ inputs.build_configuration }}
+            ASPNETCORE_ENVIRONMENT=${{ inputs.environment }}
 
       - name: Image Build Summary
         run: |
