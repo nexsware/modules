@@ -215,6 +215,7 @@ jobs:
           build-args: |
             BUILD_CONFIGURATION=${{ inputs.build_configuration }}
             ASPNETCORE_ENVIRONMENT=${{ inputs.environment }}
+            DOTNET_ENVIRONMENT=${{ inputs.environment }}
 
       - name: Image Build Summary
         run: |
@@ -316,6 +317,7 @@ jobs:
 
           # Add ASPNETCORE_ENVIRONMENT
           ENV_FLAGS="$ENV_FLAGS -e ASPNETCORE_ENVIRONMENT=${{ inputs.environment }}"
+          ENV_FLAGS="$ENV_FLAGS -e DOTNET_ENVIRONMENT=${{ inputs.environment }}"
 
           ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << ENDSSH
           set -e
