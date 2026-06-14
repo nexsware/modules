@@ -315,10 +315,6 @@ jobs:
             done < <(echo '${{ secrets.CONNECTION_STRINGS }}' | jq -r 'to_entries[] | "\(.key)=\(.value)"')
           fi
 
-          # Add ASPNETCORE_ENVIRONMENT
-          ENV_FLAGS="$ENV_FLAGS -e ASPNETCORE_ENVIRONMENT=${{ inputs.environment }}"
-          ENV_FLAGS="$ENV_FLAGS -e DOTNET_ENVIRONMENT=${{ inputs.environment }}"
-
           ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << ENDSSH
           set -e
 
@@ -375,6 +371,7 @@ jobs:
             -p ${{ inputs.container_port }}:${{ inputs.container_port }} \
             -e ASPNETCORE_ENVIRONMENT="${{ inputs.environment }}" \
             -e DOTNET_ENVIRONMENT="${{ inputs.environment }}" \
+            ${ENV_FLAGS} \
             ${IMAGE_TAG}
 
           echo "Waiting for container output..."
