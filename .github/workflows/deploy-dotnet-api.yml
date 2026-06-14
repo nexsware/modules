@@ -372,8 +372,9 @@ jobs:
           docker run -d \
             --name ${CONTAINER_NAME} \
             --restart unless-stopped \
-            -p ${PORT_BINDING} \
-            ${ENV_FLAGS} \
+            -p ${{ inputs.container_port }}:${{ inputs.container_port }} \
+            -e ASPNETCORE_ENVIRONMENT="${{ inputs.environment }}" \
+            -e DOTNET_ENVIRONMENT="${{ inputs.environment }}" \
             ${IMAGE_TAG}
 
           echo "Waiting for container output..."
