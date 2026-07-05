@@ -301,11 +301,11 @@ jobs:
           if [ -n "${{ secrets.API_KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e API_KEY='${{ secrets.API_KEY }}'"
           fi
-          if [ -n "${{ secrets.EMAIL_PASSWORD }}" ]; then
-            ENV_FLAGS="$ENV_FLAGS -e Email_Password='${{ secrets.EMAIL_PASSWORD }}'"
-          fi
           if [ -n "${{ secrets.JWT__KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e Jwt__Key='${{ secrets.JWT__KEY }}'"
+          fi
+          if [ -n "${{ secrets.EMAIL_PASSWORD }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e Email__Password='${{ secrets.EMAIL_PASSWORD }}'"
           fi
 
           # Inject connection strings from JSON: {"KeyName":"value"} → -e ConnectionStrings__KeyName='value'
