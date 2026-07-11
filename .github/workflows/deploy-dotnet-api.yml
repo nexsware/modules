@@ -135,6 +135,12 @@ on:
       EMAIL_PASSWORD:
         description: 'Email password'
         required: false
+      VULTR_STORAGE_ACCESS_KEY:
+        description: 'Vultr Object Storage S3 access key (mapped to VultrStorage__AccessKey)'
+        required: false
+      VULTR_STORAGE_SECRET_KEY:
+        description: 'Vultr Object Storage S3 secret key (mapped to VultrStorage__SecretKey)'
+        required: false
 
     outputs:
       image_tag:
@@ -306,6 +312,12 @@ jobs:
           fi
           if [ -n "${{ secrets.EMAIL_PASSWORD }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e Email__Password='${{ secrets.EMAIL_PASSWORD }}'"
+          fi
+          if [ -n "${{ secrets.VULTR_STORAGE_ACCESS_KEY }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e VultrStorage__AccessKey='${{ secrets.VULTR_STORAGE_ACCESS_KEY }}'"
+          fi
+          if [ -n "${{ secrets.VULTR_STORAGE_SECRET_KEY }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e VultrStorage__SecretKey='${{ secrets.VULTR_STORAGE_SECRET_KEY }}'"
           fi
 
           # Inject connection strings from JSON: {"KeyName":"value"} → -e ConnectionStrings__KeyName='value'
