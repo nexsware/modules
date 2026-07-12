@@ -141,6 +141,9 @@ on:
       VULTR_STORAGE_SECRET_KEY:
         description: 'Vultr Object Storage S3 secret key (mapped to VultrStorage__SecretKey)'
         required: false
+      AISSTREAM_API_KEY:
+        description: 'AISstream.io WebSocket API key (mapped to AisStream__ApiKey)'
+        required: false
 
     outputs:
       image_tag:
@@ -318,6 +321,9 @@ jobs:
           fi
           if [ -n "${{ secrets.VULTR_STORAGE_SECRET_KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e VultrStorage__SecretKey='${{ secrets.VULTR_STORAGE_SECRET_KEY }}'"
+          fi
+          if [ -n "${{ secrets.AISSTREAM_API_KEY }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e AisStream__ApiKey='${{ secrets.AISSTREAM_API_KEY }}'"
           fi
 
           # Inject connection strings from JSON: {"KeyName":"value"} → -e ConnectionStrings__KeyName='value'
