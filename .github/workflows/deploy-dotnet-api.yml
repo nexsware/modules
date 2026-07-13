@@ -325,6 +325,15 @@ jobs:
           if [ -n "${{ secrets.AISSTREAM_API_KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e AisStream__ApiKey='${{ secrets.AISSTREAM_API_KEY }}'"
           fi
+          if [ -n "${{ secrets.ENCRYPTION_HMAC_KEY }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e Encryption__HmacKey='${{ secrets.ENCRYPTION_HMAC_KEY }}'"
+          fi
+          if [ -n "${{ secrets.VAPID_PUBLIC_KEY }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e Vapid__PublicKey='${{ secrets.VAPID_PUBLIC_KEY }}'"
+          fi
+          if [ -n "${{ secrets.VAPID_PRIVATE_KEY }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e Vapid__PrivateKey='${{ secrets.VAPID_PRIVATE_KEY }}'"
+          fi
 
           # Inject connection strings from JSON: {"KeyName":"value"} → -e ConnectionStrings__KeyName='value'
           if [ -n '${{ secrets.CONNECTION_STRINGS }}' ]; then
