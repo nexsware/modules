@@ -334,6 +334,9 @@ jobs:
           if [ -n "${{ secrets.VAPID_PRIVATE_KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e Vapid__PrivateKey='${{ secrets.VAPID_PRIVATE_KEY }}'"
           fi
+          if [ -n "${{ secrets.SENTRY_DSN }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e Sentry__Dsn='${{ secrets.SENTRY_DSN }}'"
+          fi
 
           # Inject connection strings from JSON: {"KeyName":"value"} → -e ConnectionStrings__KeyName='value'
           if [ -n '${{ secrets.CONNECTION_STRINGS }}' ]; then
