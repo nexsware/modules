@@ -144,6 +144,15 @@ on:
       AISSTREAM_API_KEY:
         description: 'AISstream.io WebSocket API key (mapped to AisStream__ApiKey)'
         required: false
+      DARAJA_CONSUMER_KEY:
+        description: 'M-Pesa Daraja consumer key (mapped to Daraja__ConsumerKey)'
+        required: false
+      DARAJA_CONSUMER_SECRET:
+        description: 'M-Pesa Daraja consumer secret (mapped to Daraja__ConsumerSecret)'
+        required: false
+      DARAJA_PASSKEY:
+        description: 'M-Pesa Daraja STK push passkey (mapped to Daraja__Passkey)'
+        required: false
 
     outputs:
       image_tag:
@@ -324,6 +333,15 @@ jobs:
           fi
           if [ -n "${{ secrets.AISSTREAM_API_KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e AisStream__ApiKey='${{ secrets.AISSTREAM_API_KEY }}'"
+          fi
+          if [ -n "${{ secrets.DARAJA_CONSUMER_KEY }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e Daraja__ConsumerKey='${{ secrets.DARAJA_CONSUMER_KEY }}'"
+          fi
+          if [ -n "${{ secrets.DARAJA_CONSUMER_SECRET }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e Daraja__ConsumerSecret='${{ secrets.DARAJA_CONSUMER_SECRET }}'"
+          fi
+          if [ -n "${{ secrets.DARAJA_PASSKEY }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e Daraja__Passkey='${{ secrets.DARAJA_PASSKEY }}'"
           fi
           if [ -n "${{ secrets.ENCRYPTION_HMAC_KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e Encryption__HmacKey='${{ secrets.ENCRYPTION_HMAC_KEY }}'"
