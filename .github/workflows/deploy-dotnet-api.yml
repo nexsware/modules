@@ -144,6 +144,9 @@ on:
       AISSTREAM_API_KEY:
         description: 'AISstream.io WebSocket API key (mapped to AisStream__ApiKey)'
         required: false
+      TELNYX_API_KEY:
+        description: 'Telnyx SMS API key (mapped to Telnyx__ApiKey)'
+        required: false
       DARAJA_CONSUMER_KEY:
         description: 'M-Pesa Daraja consumer key (mapped to Daraja__ConsumerKey)'
         required: false
@@ -333,6 +336,9 @@ jobs:
           fi
           if [ -n "${{ secrets.AISSTREAM_API_KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e AisStream__ApiKey='${{ secrets.AISSTREAM_API_KEY }}'"
+          fi
+          if [ -n "${{ secrets.TELNYX_API_KEY }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e Telnyx__ApiKey='${{ secrets.TELNYX_API_KEY }}'"
           fi
           if [ -n "${{ secrets.DARAJA_CONSUMER_KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e Daraja__ConsumerKey='${{ secrets.DARAJA_CONSUMER_KEY }}'"
