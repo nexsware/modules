@@ -199,16 +199,22 @@ jobs:
 
       - name: Prepare Database Users
         id: prepare-users
+        # Same reasoning as the tfvars step: the password is read from the
+        # environment so its contents are never parsed as shell.
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.SERVICE_ACCOUNT }}
+          SERVICE_ACCOUNT_PASSWORD: ${{ secrets.SERVICE_ACCOUNT_PASSWORD }}
+          SERVICE_ACCOUNT_USERNAME_INPUT: ${{ inputs.service_account_username }}
         run: |
-          if [ -n "${{ secrets.SERVICE_ACCOUNT_PASSWORD }}" ]; then
-            if [ -n "${{ secrets.SERVICE_ACCOUNT }}" ]; then
-              USERNAME="${{ secrets.SERVICE_ACCOUNT }}"
+          if [ -n "$SERVICE_ACCOUNT_PASSWORD" ]; then
+            if [ -n "$SERVICE_ACCOUNT" ]; then
+              USERNAME="$SERVICE_ACCOUNT"
             else
-              USERNAME="${{ inputs.service_account_username }}"
+              USERNAME="$SERVICE_ACCOUNT_USERNAME_INPUT"
             fi
             USERS_JSON=$(jq -cn \
               --arg user "$USERNAME" \
-              --arg pass "${{ secrets.SERVICE_ACCOUNT_PASSWORD }}" \
+              --arg pass "$SERVICE_ACCOUNT_PASSWORD" \
               '{($user): {password: $pass, roles: []}}')
           else
             USERS_JSON='{}'
@@ -217,31 +223,74 @@ jobs:
 
       - name: Create Terraform Variables File
         working-directory: ${{ inputs.terraform_dir }}
+        # Values reach jq through the environment rather than being interpolated
+        # into the script body, so quotes, backslashes and $ inside a secret can
+        # neither break the generated JSON nor be expanded by the shell.
+        env:
+          VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          REGION: ${{ inputs.region }}
+          PLAN: ${{ inputs.plan }}
+          OS_ID: ${{ inputs.os_id }}
+          LABEL: ${{ inputs.label }}
+          HOSTNAME_INPUT: ${{ inputs.hostname }}   # not HOSTNAME — bash sets that itself
+          POSTGRES_VERSION: ${{ inputs.postgres_version }}
+          PORT: ${{ inputs.port }}
+          LISTEN_ADDRESS: ${{ inputs.listen_address }}
+          PRIVATE_IP: ${{ inputs.private_ip }}
+          DB_SUBNET: ${{ inputs.db_subnet }}
+          BASTION_SUBNET: ${{ inputs.bastion_subnet }}
+          APP_SUBNET: ${{ inputs.app_subnet }}
+          FIREWALL_GROUP_ID: ${{ inputs.firewall_group_id }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          DATABASES_JSON: ${{ steps.prepare-lists.outputs.databases_json }}
+          DATABASE_USERS_JSON: ${{ steps.prepare-users.outputs.users_json }}
+          VPC_IDS_JSON: ${{ steps.prepare-lists.outputs.vpc_ids_json }}
+          SSH_KEY_IDS_JSON: ${{ steps.prepare-lists.outputs.ssh_key_ids_json }}
         run: |
-          cat > terraform.tfvars.json <<EOF
-          {
-            "vultr_api_key": "${{ secrets.VULTR_API_KEY }}",
-            "region": "${{ inputs.region }}",
-            "plan": "${{ inputs.plan }}",
-            "os_id": ${{ inputs.os_id }},
-            "label": "${{ inputs.label }}",
-            "hostname": "${{ inputs.hostname }}",
-            "postgres_version": "${{ inputs.postgres_version }}",
-            "postgres_password": "${{ secrets.POSTGRES_PASSWORD }}",
-            "port": ${{ inputs.port }},
-            "listen_address": "${{ inputs.listen_address }}",
-            "private_ip": "${{ inputs.private_ip }}",
-            "db_subnet": "${{ inputs.db_subnet }}",
-            "bastion_subnet": "${{ inputs.bastion_subnet }}",
-            "app_subnet": "${{ inputs.app_subnet }}",
-            "databases": ${{ steps.prepare-lists.outputs.databases_json }},
-            "database_users": ${{ steps.prepare-users.outputs.users_json }},
-            "firewall_group_id": "${{ inputs.firewall_group_id }}",
-            "vpc_ids": ${{ steps.prepare-lists.outputs.vpc_ids_json }},
-            "ssh_key_ids": ${{ steps.prepare-lists.outputs.ssh_key_ids_json }},
-            "tags": ["${{ inputs.environment }}"]
-          }
-          EOF
+          jq -n \
+            --arg     vultr_api_key     "$VULTR_API_KEY" \
+            --arg     region            "$REGION" \
+            --arg     plan              "$PLAN" \
+            --argjson os_id             "$OS_ID" \
+            --arg     label             "$LABEL" \
+            --arg     hostname          "$HOSTNAME_INPUT" \
+            --arg     postgres_version  "$POSTGRES_VERSION" \
+            --arg     postgres_password "$POSTGRES_PASSWORD" \
+            --argjson port              "$PORT" \
+            --arg     listen_address    "$LISTEN_ADDRESS" \
+            --arg     private_ip        "$PRIVATE_IP" \
+            --arg     db_subnet         "$DB_SUBNET" \
+            --arg     bastion_subnet    "$BASTION_SUBNET" \
+            --arg     app_subnet        "$APP_SUBNET" \
+            --arg     firewall_group_id "$FIREWALL_GROUP_ID" \
+            --arg     environment       "$ENVIRONMENT" \
+            --argjson databases         "$DATABASES_JSON" \
+            --argjson database_users    "$DATABASE_USERS_JSON" \
+            --argjson vpc_ids           "$VPC_IDS_JSON" \
+            --argjson ssh_key_ids       "$SSH_KEY_IDS_JSON" \
+            '{
+              vultr_api_key:     $vultr_api_key,
+              region:            $region,
+              plan:              $plan,
+              os_id:             $os_id,
+              label:             $label,
+              hostname:          $hostname,
+              postgres_version:  $postgres_version,
+              postgres_password: $postgres_password,
+              port:              $port,
+              listen_address:    $listen_address,
+              private_ip:        $private_ip,
+              db_subnet:         $db_subnet,
+              bastion_subnet:    $bastion_subnet,
+              app_subnet:        $app_subnet,
+              databases:         $databases,
+              database_users:    $database_users,
+              firewall_group_id: $firewall_group_id,
+              vpc_ids:           $vpc_ids,
+              ssh_key_ids:       $ssh_key_ids,
+              tags:              [$environment]
+            }' > terraform.tfvars.json
 
       - name: Debug - Show Generated Terraform Variables
         working-directory: ${{ inputs.terraform_dir }}
