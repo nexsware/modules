@@ -116,11 +116,24 @@ variable "databases" {
 }
 
 variable "database_users" {
-  description = "Map of database users to create"
+  description = <<-EOT
+    Map of database users to create. privileges selects the grant set:
+      "crud" - CONNECT, USAGE on public, SELECT/INSERT/UPDATE/DELETE on tables,
+               USAGE/SELECT on sequences and EXECUTE on routines, plus matching
+               default privileges so objects created later by postgres are
+               covered. No DDL rights.
+      "all"  - ALL PRIVILEGES on the database and ALL on schema public (default,
+               preserves the behaviour callers had before privileges existed).
+  EOT
   type = map(object({
-    password = string
-    roles    = optional(list(string), [])
+    password   = string
+    privileges = optional(string, "all")
   }))
   default   = {}
   sensitive = true
+
+  validation {
+    condition     = alltrue([for u in values(var.database_users) : contains(["crud", "all"], u.privileges)])
+    error_message = "database_users privileges must be either \"crud\" or \"all\"."
+  }
 }

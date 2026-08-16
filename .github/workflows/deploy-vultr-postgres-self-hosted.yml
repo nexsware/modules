@@ -70,6 +70,19 @@ on:
         required: false
         type: string
         default: 'srv_account'
+      database_users:
+        description: >-
+          Optional JSON array of database users, e.g.
+          [{"username":"svc-app","privileges":"crud"}]. privileges is "crud"
+          (data access and EXECUTE on routines, no DDL) or "all" (ALL
+          PRIVILEGES, the default). Passwords are NOT set here -- the secrets
+          context is unavailable in a caller's `with:` block -- supply them via
+          the DATABASE_USER_PASSWORDS secret instead. Entries are merged over
+          the account built from SERVICE_ACCOUNT / SERVICE_ACCOUNT_PASSWORD, so
+          a matching username overrides it.
+        required: false
+        type: string
+        default: ''
       firewall_group_id:
         description: 'Vultr firewall group ID to attach (leave empty for none)'
         required: false
@@ -119,6 +132,12 @@ on:
         required: false
       BASTION_SSH_KEY_ID:
         description: 'Vultr SSH key ID of the bastion host — authorizes the bastion to SSH into this instance'
+        required: false
+      DATABASE_USER_PASSWORDS:
+        description: >-
+          JSON object of {username: password} supplying passwords for the users
+          named in the database_users input, e.g. {"svc-app":"..."}. Required
+          whenever database_users is set.
         required: false
     outputs:
       instance_id:
@@ -205,7 +224,11 @@ jobs:
           SERVICE_ACCOUNT: ${{ secrets.SERVICE_ACCOUNT }}
           SERVICE_ACCOUNT_PASSWORD: ${{ secrets.SERVICE_ACCOUNT_PASSWORD }}
           SERVICE_ACCOUNT_USERNAME_INPUT: ${{ inputs.service_account_username }}
+          DATABASE_USERS: ${{ inputs.database_users }}
+          DATABASE_USER_PASSWORDS: ${{ secrets.DATABASE_USER_PASSWORDS }}
         run: |
+          # 1. The single service account, unchanged: privileges default to
+          #    "all" so existing callers keep the grants they already have.
           if [ -n "$SERVICE_ACCOUNT_PASSWORD" ]; then
             if [ -n "$SERVICE_ACCOUNT" ]; then
               USERNAME="$SERVICE_ACCOUNT"
@@ -215,11 +238,53 @@ jobs:
             USERS_JSON=$(jq -cn \
               --arg user "$USERNAME" \
               --arg pass "$SERVICE_ACCOUNT_PASSWORD" \
-              '{($user): {password: $pass, roles: []}}')
+              '{($user): {password: $pass, privileges: "all"}}')
           else
             USERS_JSON='{}'
           fi
+
+          # 2. Users declared in the database_users input. Their passwords come
+          #    from the DATABASE_USER_PASSWORDS secret, because the secrets
+          #    context is not available in a caller's `with:` block.
+          if [ -n "$DATABASE_USERS" ]; then
+            if ! printf '%s' "$DATABASE_USERS" | jq -e 'type == "array"' >/dev/null 2>&1; then
+              echo "::error::database_users must be a JSON array of {username, privileges}"
+              exit 1
+            fi
+            if printf '%s' "$DATABASE_USERS" | jq -e 'any(.[]; (.username // "") == "")' >/dev/null; then
+              echo "::error::every database_users entry needs a non-empty username"
+              exit 1
+            fi
+            if printf '%s' "$DATABASE_USERS" | jq -e 'any(.[]; (.privileges // "all") | . != "crud" and . != "all")' >/dev/null; then
+              echo "::error::database_users privileges must be \"crud\" or \"all\""
+              exit 1
+            fi
+            if [ -z "$DATABASE_USER_PASSWORDS" ]; then
+              echo "::error::database_users is set but the DATABASE_USER_PASSWORDS secret is empty"
+              exit 1
+            fi
+            if ! printf '%s' "$DATABASE_USER_PASSWORDS" | jq -e 'type == "object"' >/dev/null 2>&1; then
+              echo "::error::DATABASE_USER_PASSWORDS must be a JSON object of {username: password}"
+              exit 1
+            fi
+            MISSING=$(jq -rn \
+              --argjson users "$DATABASE_USERS" \
+              --argjson pw "$DATABASE_USER_PASSWORDS" \
+              '[$users[].username | select((($pw[.]) // "") == "")] | join(", ")')
+            if [ -n "$MISSING" ]; then
+              echo "::error::DATABASE_USER_PASSWORDS has no password for: $MISSING"
+              exit 1
+            fi
+            EXTRA_JSON=$(jq -cn \
+              --argjson users "$DATABASE_USERS" \
+              --argjson pw "$DATABASE_USER_PASSWORDS" \
+              '[ $users[] | { (.username): { password: $pw[.username], privileges: (.privileges // "all") } } ] | add // {}')
+            USERS_JSON=$(jq -cn --argjson base "$USERS_JSON" --argjson extra "$EXTRA_JSON" '$base * $extra')
+          fi
+
           echo "users_json=$USERS_JSON" >> $GITHUB_OUTPUT
+          # Names only — never the passwords.
+          echo "Configured database users: $(printf '%s' "$USERS_JSON" | jq -r 'to_entries | map("\(.key) (\(.value.privileges))") | join(", ")')"
 
       - name: Create Terraform Variables File
         working-directory: ${{ inputs.terraform_dir }}

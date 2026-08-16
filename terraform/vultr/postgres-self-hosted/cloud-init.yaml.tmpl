@@ -95,8 +95,23 @@ write_files:
         sudo -u postgres psql -c "CREATE USER \"${username}\" WITH PASSWORD '${user.password}'"
       fi
       %{ for db in databases }
+      %{ if user.privileges == "crud" ~}
+      # Data access and routine execution only — no DDL. The ALTER DEFAULT
+      # PRIVILEGES lines are attached FOR ROLE postgres because migrations run
+      # as postgres, so tables and routines it creates later inherit these
+      # grants automatically. Without them the app breaks on the next migration.
+      sudo -u postgres psql -c "GRANT CONNECT ON DATABASE \"${db}\" TO \"${username}\";"
+      sudo -u postgres psql -d "${db}" -c "GRANT USAGE ON SCHEMA public TO \"${username}\";"
+      sudo -u postgres psql -d "${db}" -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"${username}\";"
+      sudo -u postgres psql -d "${db}" -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"${username}\";"
+      sudo -u postgres psql -d "${db}" -c "GRANT EXECUTE ON ALL ROUTINES IN SCHEMA public TO \"${username}\";"
+      sudo -u postgres psql -d "${db}" -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"${username}\";"
+      sudo -u postgres psql -d "${db}" -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO \"${username}\";"
+      sudo -u postgres psql -d "${db}" -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON ROUTINES TO \"${username}\";"
+      %{ else ~}
       sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE \"${db}\" TO \"${username}\";"
       sudo -u postgres psql -d "${db}" -c "GRANT ALL ON SCHEMA public TO \"${username}\";"
+      %{ endif ~}
       %{ endfor ~}
       %{ endfor ~}
       %{ endif ~}
