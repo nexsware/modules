@@ -59,8 +59,23 @@ on:
         required: false
         type: boolean
         default: false
+      # The policy itself is built here rather than pasted into every caller.
+      # Only the origins a given product talks to differ between sites, so those
+      # are the only things a caller passes; everything else in a CSP for a
+      # self-contained SPA is the same boilerplate each time, and boilerplate
+      # copied into six repos is boilerplate that drifts in six directions.
+      csp_connect_src:
+        description: "Extra origins for connect-src, space-separated — the API host, wss:// for websockets, object storage. 'self' is always included."
+        required: false
+        type: string
+        default: ''
+      csp_img_src:
+        description: "Extra origins for img-src, space-separated — a CDN or object storage. 'self' data: blob: are always included."
+        required: false
+        type: string
+        default: ''
       content_security_policy:
-        description: 'Content-Security-Policy value. Empty means no CSP header. Requires security_headers.'
+        description: 'Full CSP, replacing the built-in baseline entirely. Only for a site the baseline cannot express; prefer csp_connect_src / csp_img_src.'
         required: false
         type: string
         default: ''
@@ -170,6 +185,8 @@ jobs:
         env:
           SECURITY_HEADERS: ${{ inputs.security_headers }}
           CSP: ${{ inputs.content_security_policy }}
+          CSP_CONNECT_SRC: ${{ inputs.csp_connect_src }}
+          CSP_IMG_SRC: ${{ inputs.csp_img_src }}
           CSP_REPORT_ONLY: ${{ inputs.csp_report_only }}
         run: |
           SERVER_IP="${{ inputs.server_ip }}"
@@ -188,14 +205,26 @@ jobs:
           add_header Referrer-Policy "strict-origin-when-cross-origin" always;
           add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;'
 
-            if [ -n "${CSP}" ]; then
-              CSP_HEADER="Content-Security-Policy"
-              if [ "${CSP_REPORT_ONLY}" = "true" ]; then
-                CSP_HEADER="Content-Security-Policy-Report-Only"
-              fi
-              SECURITY_SNIPPET="${SECURITY_SNIPPET}
-          add_header ${CSP_HEADER} \"${CSP}\" always;"
+            # The baseline suits a self-contained SPA: its own bundle, its own
+            # styles, and whatever origins the caller named. The two loose
+            # directives are deliberate and worth knowing about —
+            #   style-src needs 'unsafe-inline' because component libraries and
+            #     ad-hoc style={{…}} props set inline styles; tightening it is a
+            #     refactor of the app, not a change here, and script-src is the
+            #     half that actually stops XSS.
+            #   img-src allows data: and blob: for inline icons and for previews
+            #     of a file the user just picked, before it has been uploaded.
+            CSP_VALUE="${CSP}"
+            if [ -z "${CSP_VALUE}" ]; then
+              CSP_VALUE="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:${CSP_IMG_SRC:+ ${CSP_IMG_SRC}}; connect-src 'self'${CSP_CONNECT_SRC:+ ${CSP_CONNECT_SRC}}; worker-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
             fi
+
+            CSP_HEADER="Content-Security-Policy"
+            if [ "${CSP_REPORT_ONLY}" = "true" ]; then
+              CSP_HEADER="Content-Security-Policy-Report-Only"
+            fi
+            SECURITY_SNIPPET="${SECURITY_SNIPPET}
+          add_header ${CSP_HEADER} \"${CSP_VALUE}\" always;"
           fi
 
           ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << ENDSSH
