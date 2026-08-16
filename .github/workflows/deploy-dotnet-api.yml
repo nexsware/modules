@@ -476,6 +476,13 @@ jobs:
           server {
               listen 80;
               server_name ${DOMAIN};
+              # nginx defaults to 1m, which silently caps every file upload the
+              # API accepts. Worse, nginx answers an oversize request itself,
+              # before the app's CORS headers are applied, so the browser
+              # blocks the 413 and the client sees an unreadable network error
+              # instead of a size message. Set above the app's own limit so
+              # oversize files are rejected by the API, with its real reason.
+              client_max_body_size 20m;
               location / {
                   proxy_pass         http://127.0.0.1:${PORT};
                   proxy_http_version 1.1;

@@ -50,6 +50,25 @@ on:
         required: false
         type: string
         default: ''
+      # Security headers are opt-in so that adding them here changes nothing for
+      # sites already deployed through this workflow. A caller turns them on
+      # once it knows its own content requirements; a CSP guessed on a site's
+      # behalf breaks it in production.
+      security_headers:
+        description: 'Emit HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy and Permissions-Policy'
+        required: false
+        type: boolean
+        default: false
+      content_security_policy:
+        description: 'Content-Security-Policy value. Empty means no CSP header. Requires security_headers.'
+        required: false
+        type: string
+        default: ''
+      csp_report_only:
+        description: 'Send the CSP as Content-Security-Policy-Report-Only (observe without enforcing)'
+        required: false
+        type: boolean
+        default: false
 
     secrets:
       SSH_PRIVATE_KEY:
@@ -148,13 +167,44 @@ jobs:
             ${DIST}/ root@${SERVER_IP}:/var/www/${DOMAIN}/
 
       - name: Configure Nginx and SSL
+        env:
+          SECURITY_HEADERS: ${{ inputs.security_headers }}
+          CSP: ${{ inputs.content_security_policy }}
+          CSP_REPORT_ONLY: ${{ inputs.csp_report_only }}
         run: |
           SERVER_IP="${{ inputs.server_ip }}"
           DOMAIN="${{ inputs.nginx_domain }}"
           EMAIL="${{ inputs.certbot_email }}"
 
+          # Built here rather than inline in the server block so the config
+          # template stays one shape whether or not a caller opted in: the
+          # snippet is always written and always included, and is simply empty
+          # when security_headers is false.
+          SECURITY_SNIPPET=""
+          if [ "${SECURITY_HEADERS}" = "true" ]; then
+            SECURITY_SNIPPET='add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+          add_header X-Content-Type-Options "nosniff" always;
+          add_header X-Frame-Options "DENY" always;
+          add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+          add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()" always;'
+
+            if [ -n "${CSP}" ]; then
+              CSP_HEADER="Content-Security-Policy"
+              if [ "${CSP_REPORT_ONLY}" = "true" ]; then
+                CSP_HEADER="Content-Security-Policy-Report-Only"
+              fi
+              SECURITY_SNIPPET="${SECURITY_SNIPPET}
+          add_header ${CSP_HEADER} \"${CSP}\" always;"
+            fi
+          fi
+
           ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << ENDSSH
           set -e
+
+          mkdir -p /etc/nginx/snippets
+          cat > /etc/nginx/snippets/${DOMAIN}-security.conf << 'SECEOF'
+          ${SECURITY_SNIPPET}
+          SECEOF
 
           cat > /etc/nginx/sites-available/${DOMAIN} << 'NGINXEOF'
           server {
@@ -163,14 +213,24 @@ jobs:
               root /var/www/${DOMAIN};
               index index.html;
 
+              include /etc/nginx/snippets/${DOMAIN}-security.conf;
+
+              # The include is repeated in every location, and that repetition
+              # is load-bearing. nginx inherits add_header from an outer level
+              # ONLY when the current level declares no add_header of its own —
+              # so the Cache-Control lines below would silently discard every
+              # server-level security header for these locations, which between
+              # them serve the entire site.
               location ~* \.(js|css|svg|png|jpg|jpeg|gif|webp|woff|woff2|ttf|ico)\$ {
                   try_files \$uri =404;
                   add_header Cache-Control "public, max-age=31536000, immutable";
+                  include /etc/nginx/snippets/${DOMAIN}-security.conf;
               }
 
               location / {
                   try_files \$uri \$uri/ /index.html;
                   add_header Cache-Control "no-cache";
+                  include /etc/nginx/snippets/${DOMAIN}-security.conf;
               }
           }
           NGINXEOF
