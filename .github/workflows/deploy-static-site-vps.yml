@@ -36,12 +36,23 @@ on:
         required: false
         type: string
         default: ''
-      # Give either base_domain (and let the convention apply) or nginx_domain
-      # (and say it outright). nginx_domain stays supported and stays the
-      # winner when both are set, so every caller written before base_domain
-      # existed keeps working untouched.
+      # Give base_domain (+ subdomain) and let the convention apply, or give
+      # nginx_domain and say it outright. nginx_domain stays supported and
+      # stays the winner when both are set, so every caller written before
+      # base_domain existed keeps working untouched.
+      #
+      # The convention builds [{environment}.][{subdomain}.]{base_domain}:
+      # a product sits on its own subdomain of the company apex, and every
+      # environment but prod is prefixed with its own name. So base_domain
+      # nexsware.com with subdomain safii gives safii.nexsware.com on prod and
+      # test.safii.nexsware.com on test.
       base_domain:
-        description: 'Apex domain, e.g. example.com. Deploys to the apex on prod and to {environment}.apex everywhere else. Ignored when nginx_domain is set.'
+        description: 'Company apex domain, e.g. nexsware.com. Not the product domain — pass that as subdomain.'
+        required: false
+        type: string
+        default: ''
+      subdomain:
+        description: 'Product subdomain beneath base_domain, e.g. safii. Leave empty for a site that lives on the apex itself.'
         required: false
         type: string
         default: ''
@@ -121,18 +132,22 @@ jobs:
       - name: Resolve deployment domain
         env:
           BASE_DOMAIN: ${{ inputs.base_domain }}
+          SUBDOMAIN: ${{ inputs.subdomain }}
           NGINX_DOMAIN: ${{ inputs.nginx_domain }}
           ENVIRONMENT: ${{ inputs.environment }}
         run: |
           if [ -n "${NGINX_DOMAIN}" ]; then
             RESOLVED="${NGINX_DOMAIN}"
           elif [ -n "${BASE_DOMAIN}" ]; then
-            # The house convention: prod owns the apex, every other environment
-            # is a subdomain named after itself.
+            # The product's own domain: its subdomain of the company apex, or
+            # the apex itself for a site that has no subdomain.
+            SITE="${SUBDOMAIN:+${SUBDOMAIN}.}${BASE_DOMAIN}"
+            # prod answers on that domain; every other environment is prefixed
+            # with its own name.
             if [ "${ENVIRONMENT}" = "prod" ]; then
-              RESOLVED="${BASE_DOMAIN}"
+              RESOLVED="${SITE}"
             else
-              RESOLVED="${ENVIRONMENT}.${BASE_DOMAIN}"
+              RESOLVED="${ENVIRONMENT}.${SITE}"
             fi
           else
             echo "Provide either base_domain or nginx_domain — there is no domain to deploy to." >&2
