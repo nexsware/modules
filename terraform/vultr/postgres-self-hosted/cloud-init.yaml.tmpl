@@ -54,10 +54,18 @@ write_files:
       port = ${port}
       PGEOF
 
-      # Allow connections from all private VPC ranges and localhost
+      # The same two subnets the UFW rules above admit. These were hardcoded to
+      # 10.0.0.0/8, which let any address in the entire private range
+      # authenticate if it could reach the port, leaving UFW as the only real
+      # boundary — the two layers should agree about who may connect, so that
+      # one of them being wrong is not silently survivable.
+      #
+      # No 127.0.0.1 line here: the distro's stock pg_hba.conf already ships
+      # one, so appending a second only produced a duplicate that could never
+      # match (pg_hba is first-match-wins).
       cat >> "$PGCONF/pg_hba.conf" <<PGEOF
-      host    all    all    10.0.0.0/8     scram-sha-256
-      host    all    all    127.0.0.1/32   scram-sha-256
+      host    all    all    ${app_subnet}       scram-sha-256
+      host    all    all    ${bastion_subnet}   scram-sha-256
       PGEOF
 
       systemctl restart postgresql

@@ -294,9 +294,22 @@ jobs:
 
       - name: Debug - Show Generated Terraform Variables
         working-directory: ${{ inputs.terraform_dir }}
+        # Diagnostics only — never fail the deploy from here. Secret values are
+        # masked by the runner, so the raw dump is safe and is the only way to
+        # see a malformed line when jq itself cannot parse the file.
+        continue-on-error: true
         run: |
-          echo "=== Generated terraform.tfvars.json ==="
-          cat terraform.tfvars.json | jq 'del(.vultr_api_key, .postgres_password, .database_users)'
+          echo "=== Generated terraform.tfvars.json (raw, numbered) ==="
+          nl -ba terraform.tfvars.json
+          echo "=== sha256 / size ==="
+          sha256sum terraform.tfvars.json
+          wc -c terraform.tfvars.json
+          echo "=== Parsed ==="
+          if jq 'del(.vultr_api_key, .postgres_password, .database_users)' terraform.tfvars.json; then
+            echo "JSON is valid"
+          else
+            echo "WARNING: file is not valid JSON — see the numbered raw dump above"
+          fi
           echo "========================================"
 
       - name: Terraform Init
