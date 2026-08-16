@@ -36,10 +36,20 @@ on:
         required: false
         type: string
         default: ''
-      nginx_domain:
-        description: 'Domain for nginx server_name and certbot'
-        required: true
+      # Give either base_domain (and let the convention apply) or nginx_domain
+      # (and say it outright). nginx_domain stays supported and stays the
+      # winner when both are set, so every caller written before base_domain
+      # existed keeps working untouched.
+      base_domain:
+        description: 'Apex domain, e.g. example.com. Deploys to the apex on prod and to {environment}.apex everywhere else. Ignored when nginx_domain is set.'
+        required: false
         type: string
+        default: ''
+      nginx_domain:
+        description: 'Explicit domain for nginx server_name and certbot, bypassing the base_domain convention. One of the two is required.'
+        required: false
+        type: string
+        default: ''
       certbot_email:
         description: 'Email for certbot SSL certificate. Leave empty to skip SSL.'
         required: false
@@ -64,8 +74,13 @@ on:
       # are the only things a caller passes; everything else in a CSP for a
       # self-contained SPA is the same boilerplate each time, and boilerplate
       # copied into six repos is boilerplate that drifts in six directions.
+      api_base_url:
+        description: 'Origin of the API this site calls, e.g. https://api.example.com. Added to connect-src along with its wss:// form, so a site using websockets does not have to spell that out.'
+        required: false
+        type: string
+        default: ''
       csp_connect_src:
-        description: "Extra origins for connect-src, space-separated — the API host, wss:// for websockets, object storage. 'self' is always included."
+        description: "Extra origins for connect-src beyond api_base_url — object storage, a CDN. Space-separated. 'self' is always included."
         required: false
         type: string
         default: ''
@@ -99,6 +114,34 @@ jobs:
     environment: ${{ inputs.environment }}
 
     steps:
+      # Resolved once and published as DEPLOY_DOMAIN, because four later steps
+      # need the same answer — rsync target, nginx server_name, certbot, and
+      # the run summary. Deriving it in each of them is how a deploy ends up
+      # writing files to one hostname and issuing a certificate for another.
+      - name: Resolve deployment domain
+        env:
+          BASE_DOMAIN: ${{ inputs.base_domain }}
+          NGINX_DOMAIN: ${{ inputs.nginx_domain }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          if [ -n "${NGINX_DOMAIN}" ]; then
+            RESOLVED="${NGINX_DOMAIN}"
+          elif [ -n "${BASE_DOMAIN}" ]; then
+            # The house convention: prod owns the apex, every other environment
+            # is a subdomain named after itself.
+            if [ "${ENVIRONMENT}" = "prod" ]; then
+              RESOLVED="${BASE_DOMAIN}"
+            else
+              RESOLVED="${ENVIRONMENT}.${BASE_DOMAIN}"
+            fi
+          else
+            echo "Provide either base_domain or nginx_domain — there is no domain to deploy to." >&2
+            exit 1
+          fi
+
+          echo "DEPLOY_DOMAIN=${RESOLVED}" >> "$GITHUB_ENV"
+          echo "Deploying to ${RESOLVED}"
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -154,7 +197,7 @@ jobs:
       - name: Prepare Server
         run: |
           SERVER_IP="${{ inputs.server_ip }}"
-          DOMAIN="${{ inputs.nginx_domain }}"
+          DOMAIN="${DEPLOY_DOMAIN}"
 
           ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << ENDSSH
           set -e
@@ -174,7 +217,7 @@ jobs:
       - name: Deploy Static Files
         run: |
           SERVER_IP="${{ inputs.server_ip }}"
-          DOMAIN="${{ inputs.nginx_domain }}"
+          DOMAIN="${DEPLOY_DOMAIN}"
           DIST="${{ inputs.app_directory }}/${{ inputs.dist_directory }}"
 
           rsync -avz --delete \
@@ -185,12 +228,13 @@ jobs:
         env:
           SECURITY_HEADERS: ${{ inputs.security_headers }}
           CSP: ${{ inputs.content_security_policy }}
+          API_BASE_URL: ${{ inputs.api_base_url }}
           CSP_CONNECT_SRC: ${{ inputs.csp_connect_src }}
           CSP_IMG_SRC: ${{ inputs.csp_img_src }}
           CSP_REPORT_ONLY: ${{ inputs.csp_report_only }}
         run: |
           SERVER_IP="${{ inputs.server_ip }}"
-          DOMAIN="${{ inputs.nginx_domain }}"
+          DOMAIN="${DEPLOY_DOMAIN}"
           EMAIL="${{ inputs.certbot_email }}"
 
           # Built here rather than inline in the server block so the config
@@ -214,9 +258,31 @@ jobs:
             #     half that actually stops XSS.
             #   img-src allows data: and blob: for inline icons and for previews
             #     of a file the user just picked, before it has been uploaded.
+            # An API origin implies two CSP sources, not one: the https origin
+            # for ordinary requests and its wss form for websockets. Deriving
+            # the second here means a caller states its API host once, in the
+            # shape it already uses everywhere else, instead of hand-writing a
+            # parallel wss:// spelling that can silently fall out of step with
+            # it after a rename.
+            API_ORIGINS=""
+            if [ -n "${API_BASE_URL}" ]; then
+              # A CSP source is scheme + host + optional port; a trailing slash
+              # or a path makes the whole directive invalid, and the browser
+              # drops it silently.
+              API_ORIGIN="${API_BASE_URL%/}"
+              case "${API_ORIGIN}" in
+                https://*) API_ORIGINS="${API_ORIGIN} wss://${API_ORIGIN#https://}" ;;
+                http://*)  API_ORIGINS="${API_ORIGIN} ws://${API_ORIGIN#http://}" ;;
+                *)
+                  echo "api_base_url must include a scheme, e.g. https://api.example.com (got: ${API_BASE_URL})" >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+
             CSP_VALUE="${CSP}"
             if [ -z "${CSP_VALUE}" ]; then
-              CSP_VALUE="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:${CSP_IMG_SRC:+ ${CSP_IMG_SRC}}; connect-src 'self'${CSP_CONNECT_SRC:+ ${CSP_CONNECT_SRC}}; worker-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+              CSP_VALUE="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:${CSP_IMG_SRC:+ ${CSP_IMG_SRC}}; connect-src 'self'${API_ORIGINS:+ ${API_ORIGINS}}${CSP_CONNECT_SRC:+ ${CSP_CONNECT_SRC}}; worker-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
             fi
 
             CSP_HEADER="Content-Security-Policy"
@@ -286,6 +352,6 @@ jobs:
         run: |
           echo "## Static Site Deployed Successfully" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Domain:** https://${{ inputs.nginx_domain }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Domain:** https://${DEPLOY_DOMAIN}" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "**Server:** ${{ inputs.server_ip }}" >> $GITHUB_STEP_SUMMARY
