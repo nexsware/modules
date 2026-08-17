@@ -44,9 +44,24 @@ write_files:
       ip route replace ${app_subnet} dev $VPC_IFACE 2>/dev/null || true
       %{ endif }
 
-      # Allow PostgreSQL connections from VPC subnets through UFW
+      # The whole host firewall, declared here and enabled here.
+      #
+      # These rules used to be added without ever calling `ufw enable`, which
+      # only appeared to work: Ubuntu images arrive with ufw already active and
+      # a lone "allow 22 from anywhere" rule that exists in no Terraform. So the
+      # policy was half image, half module, and neither half knew about the
+      # other — a database server reachable on 22 from the entire internet while
+      # 5432 was carefully restricted to two subnets.
+      #
+      # Reset first so the result is this policy, not this policy layered over
+      # the image's. SSH before enable, always: enabling a default-deny firewall
+      # with no SSH rule in place locks the host out, and the only way back is
+      # the provider's web console.
+      ufw --force reset
+      ufw allow from ${bastion_subnet} to any port 22 proto tcp
       ufw allow from ${app_subnet} to any port ${port} proto tcp
       ufw allow from ${bastion_subnet} to any port ${port} proto tcp
+      ufw --force enable
 
       # Set listen address and port
       cat >> "$PGCONF/postgresql.conf" <<PGEOF

@@ -18,6 +18,10 @@ resource "vultr_instance" "this" {
     instance_subnet = var.instance_subnet
     db_subnet       = var.db_subnet
     user_data       = var.user_data
+    ufw_enabled     = var.ufw_enabled
+    ssh_allow_from  = var.ssh_allow_from
+    public_ports    = var.public_ports
+    internal_rules  = var.internal_rules
   })
 
   lifecycle {

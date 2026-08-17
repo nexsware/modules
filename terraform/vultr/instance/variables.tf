@@ -90,3 +90,38 @@ variable "user_data" {
   description = "Optional shell script to run on first boot after network setup. Leave empty for none."
   default     = ""
 }
+
+# Host firewall.
+#
+# Off by default so that adding it changes nothing for instances already built
+# through this module. Turn it on and the policy below becomes the whole
+# policy — which is the point. Ubuntu images arrive with ufw active and a
+# single "allow 22 from anywhere" rule that appears in no Terraform anywhere,
+# so a module that only adds rules is editing a firewall it does not own, and
+# whatever it forgets to open stays shut with nothing to point at.
+variable "ufw_enabled" {
+  type        = bool
+  description = "Declare the host firewall from this module: reset to a known state, apply the rules below, and enable. Leave false to inherit whatever the image ships."
+  default     = false
+}
+
+variable "ssh_allow_from" {
+  type        = string
+  description = "CIDR permitted to reach port 22, e.g. a bastion subnet. Empty means anywhere. When the instance is reached through a bastion over the VPC, this must be the bastion's PRIVATE subnet — its public IP never appears as the source."
+  default     = ""
+}
+
+variable "public_ports" {
+  type        = list(string)
+  description = "TCP ports opened to 0.0.0.0/0, e.g. [\"80\", \"443\"] for a host serving the internet. Port 80 is required for certbot's HTTP-01 renewals, not just first issuance."
+  default     = []
+}
+
+variable "internal_rules" {
+  type = list(object({
+    port = string
+    cidr = string
+  }))
+  description = "TCP ports opened to a specific CIDR — an app port reachable only from the app subnet, say."
+  default     = []
+}

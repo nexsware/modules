@@ -59,6 +59,29 @@ write_files:
       }
 
 runcmd:
+%{ if ufw_enabled ~}
+  # Before certbot, not after: the HTTP-01 challenge is an inbound request to
+  # port 80 from Let's Encrypt's validators, so a host firewall that has not
+  # opened 80 yet fails issuance with "Timeout during connect", which reads as
+  # a DNS or nginx fault and is neither.
+  #
+  # 80 stays open afterwards. The renewal cron below re-runs the same challenge
+  # every night; closing 80 once the first certificate lands gets you a working
+  # site that quietly stops renewing about sixty days later.
+  - |
+    ufw --force reset
+%{ if ssh_allow_from != "" ~}
+    ufw allow from ${ssh_allow_from} to any port 22 proto tcp
+%{ else ~}
+    ufw allow 22/tcp
+%{ endif ~}
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+%{ for port in extra_public_ports ~}
+    ufw allow ${port}/tcp
+%{ endfor ~}
+    ufw --force enable
+%{ endif ~}
   - rm -f /etc/nginx/sites-enabled/default
   - ln -sf /etc/nginx/sites-available/${server_name} /etc/nginx/sites-enabled/${server_name}
   - nginx -t

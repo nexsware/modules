@@ -98,3 +98,28 @@ variable "proxy_read_timeout" {
   description = "Nginx proxy_read_timeout in seconds — increase for long-lived SignalR connections"
   default     = 120
 }
+
+# Host firewall.
+#
+# On by default here, unlike the generic instance module. This module installs
+# nginx and runs certbot itself, so it knows exactly which ports the host needs
+# — 22, 80, 443 — and a web server that cannot be reached is not serving. The
+# generic module can't make that claim about an unknown workload, so there it
+# is opt-in.
+variable "ufw_enabled" {
+  type        = bool
+  description = "Declare the host firewall from this module: 22, 80 and 443, then enable. Set false to inherit whatever the image ships."
+  default     = true
+}
+
+variable "ssh_allow_from" {
+  type        = string
+  description = "CIDR permitted to reach port 22, e.g. a bastion subnet. Empty means anywhere. Reached through a bastion over the VPC, this must be the bastion's PRIVATE subnet — its public IP is never the source address."
+  default     = ""
+}
+
+variable "extra_public_ports" {
+  type        = list(string)
+  description = "Additional TCP ports to open to 0.0.0.0/0 beyond 80 and 443."
+  default     = []
+}

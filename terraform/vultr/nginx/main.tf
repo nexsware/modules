@@ -20,5 +20,8 @@ resource "vultr_instance" "this" {
     proxy_upstreams    = var.proxy_upstreams
     static_root        = var.static_root
     proxy_read_timeout = var.proxy_read_timeout
+    ufw_enabled        = var.ufw_enabled
+    ssh_allow_from     = var.ssh_allow_from
+    extra_public_ports = var.extra_public_ports
   })
 }

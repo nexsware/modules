@@ -41,6 +41,31 @@ write_files:
 %{ endif ~}
       %{ endif ~}
 
+      %{ if ufw_enabled ~}
+      # Reset first, so the result is this policy rather than this policy layered
+      # over whatever the image happened to ship.
+      ufw --force reset
+
+      # SSH before enable, always. Enabling a default-deny firewall without an
+      # SSH rule already in place locks the host out, and the only way back in
+      # is the provider's web console.
+      %{ if ssh_allow_from != "" ~}
+      ufw allow from ${ssh_allow_from} to any port 22 proto tcp
+      %{ else ~}
+      ufw allow 22/tcp
+      %{ endif ~}
+      %{ for port in public_ports ~}
+      ufw allow ${port}/tcp
+      %{ endfor ~}
+      %{ for rule in internal_rules ~}
+      ufw allow from ${rule.cidr} to any port ${rule.port} proto tcp
+      %{ endfor ~}
+      ufw --force enable
+      %{ endif ~}
+
+      # Runs after the firewall is up, so anything installed here that needs a
+      # port must open it — either by adding to public_ports/internal_rules
+      # above, or with its own ufw call.
       %{ if user_data != "" }
       ${user_data}
       %{ endif ~}

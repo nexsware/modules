@@ -16,6 +16,25 @@ fi
 apt-get update
 apt-get install -y nginx certbot python3-certbot-nginx jq
 
+# Host firewall, opened before certbot runs below.
+#
+# The HTTP-01 challenge is an inbound request to port 80 from Let's Encrypt's
+# validators, so a host firewall that has not opened 80 yet fails issuance with
+# "Timeout during connect" — which reads like a DNS or nginx fault and is
+# neither. Ubuntu images arrive with ufw active and a lone "allow 22 from
+# anywhere" rule that appears in no Terraform, so the ports this script's own
+# nginx needs have to be opened by this script.
+#
+# 80 stays open afterwards: certbot's renewal timer re-runs the same challenge,
+# and closing 80 after the first certificate lands leaves a working site that
+# quietly stops renewing about sixty days later.
+if command -v ufw >/dev/null 2>&1; then
+    ufw allow 22/tcp
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    ufw --force enable
+fi
+
 # Parse the JSON array
 DOMAINS_CONTAINERS=${DOMAINS_CONTAINERS:-$domains_containers}
 if [ -z "$DOMAINS_CONTAINERS" ]; then
