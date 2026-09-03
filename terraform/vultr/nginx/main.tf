@@ -21,6 +21,7 @@ resource "vultr_instance" "this" {
     static_root        = var.static_root
     proxy_read_timeout = var.proxy_read_timeout
     ufw_enabled        = var.ufw_enabled
+    harden_ssh         = var.disable_password_authentication && length(var.ssh_key_ids) > 0
     ssh_allow_from     = var.ssh_allow_from
     extra_public_ports = var.extra_public_ports
   })

@@ -19,6 +19,7 @@ resource "vultr_instance" "this" {
     db_subnet       = var.db_subnet
     user_data       = var.user_data
     ufw_enabled     = var.ufw_enabled
+    harden_ssh      = var.disable_password_authentication && length(var.ssh_key_ids) > 0
     ssh_allow_from  = var.ssh_allow_from
     public_ports    = var.public_ports
     internal_rules  = var.internal_rules

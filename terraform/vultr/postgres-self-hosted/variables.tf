@@ -137,3 +137,14 @@ variable "database_users" {
     error_message = "database_users privileges must be either \"crud\" or \"all\"."
   }
 }
+
+variable "disable_password_authentication" {
+  type        = bool
+  description = <<-EOT
+    Turn off SSH password authentication, leaving key auth only.
+
+    Ignored when ssh_key_ids is empty: disabling passwords on a host that has no
+    key installed locks it out, and the only way back is the provider's console.
+  EOT
+  default     = true
+}

@@ -82,8 +82,8 @@ variable "proxy_upstreams" {
   }))
   # Safii default: API + SignalR hub via private VPC IP
   default = [
-    { path = "/api/",   backend = "http://127.0.0.1:5000/" },
-    { path = "/hubs/",  backend = "http://127.0.0.1:5000/" },
+    { path = "/api/", backend = "http://127.0.0.1:5000/" },
+    { path = "/hubs/", backend = "http://127.0.0.1:5000/" },
   ]
 }
 
@@ -122,4 +122,15 @@ variable "extra_public_ports" {
   type        = list(string)
   description = "Additional TCP ports to open to 0.0.0.0/0 beyond 80 and 443."
   default     = []
+}
+
+variable "disable_password_authentication" {
+  type        = bool
+  description = <<-EOT
+    Turn off SSH password authentication, leaving key auth only.
+
+    Ignored when ssh_key_ids is empty: disabling passwords on a host that has no
+    key installed locks it out, and the only way back is the provider's console.
+  EOT
+  default     = true
 }

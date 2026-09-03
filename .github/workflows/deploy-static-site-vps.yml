@@ -323,6 +323,19 @@ jobs:
               root /var/www/${DOMAIN};
               index index.html;
 
+              server_tokens off;
+
+              # nginx's built-in gzip_types is text/html and nothing else, so a
+              # bundled SPA ships its single largest asset — the JS bundle —
+              # uncompressed unless the types are named here. Text formats only:
+              # images and woff2 arrive already compressed, and running them
+              # through gzip spends CPU to make them very slightly larger.
+              gzip on;
+              gzip_vary on;
+              gzip_comp_level 6;
+              gzip_min_length 1024;
+              gzip_types application/javascript text/javascript application/json application/manifest+json text/css image/svg+xml application/wasm;
+
               include /etc/nginx/snippets/${DOMAIN}-security.conf;
 
               # The include is repeated in every location, and that repetition
@@ -355,6 +368,27 @@ jobs:
               apt-get install -y certbot python3-certbot-nginx
             fi
             certbot --nginx -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive --redirect
+
+            # certbot writes the TLS listener but never turns on HTTP/2, and a
+            # site that ships a dozen hashed chunks pays for that in head-of-line
+            # blocking on every cold load. The listen flag is the spelling every
+            # nginx from 1.9 through the current release still accepts; 1.25.1+
+            # prefers a standalone "http2 on;" and says so, but a deprecation
+            # notice is a warning, not a failure. Should a later release drop the
+            # flag outright, nginx -t catches it here and the pre-edit config
+            # goes back, rather than reloading a server that will not start.
+            CONF=/etc/nginx/sites-available/${DOMAIN}
+            if ! grep -qE 'listen[^;]*443 ssl[^;]*http2' "\${CONF}"; then
+              cp "\${CONF}" "\${CONF}.pre-http2"
+              sed -i -E 's/^([[:space:]]*listen[^;]*443 ssl)([^;]*);/\1 http2\2;/' "\${CONF}"
+              if ! nginx -t; then
+                echo "Enabling HTTP/2 broke the config; reverting to the certbot output." >&2
+                mv "\${CONF}.pre-http2" "\${CONF}"
+              fi
+              rm -f "\${CONF}.pre-http2"
+            fi
+
+            nginx -t
             systemctl reload nginx
           fi
           ENDSSH

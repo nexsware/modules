@@ -125,3 +125,14 @@ variable "internal_rules" {
   description = "TCP ports opened to a specific CIDR — an app port reachable only from the app subnet, say."
   default     = []
 }
+
+variable "disable_password_authentication" {
+  type        = bool
+  description = <<-EOT
+    Turn off SSH password authentication, leaving key auth only.
+
+    Ignored when ssh_key_ids is empty: disabling passwords on a host that has no
+    key installed locks it out, and the only way back is the provider's console.
+  EOT
+  default     = true
+}

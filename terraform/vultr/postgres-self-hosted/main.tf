@@ -21,6 +21,7 @@ resource "vultr_instance" "this" {
     private_ip        = var.private_ip
     db_subnet         = var.db_subnet
     bastion_subnet    = var.bastion_subnet
+    harden_ssh        = var.disable_password_authentication && length(var.ssh_key_ids) > 0
     app_subnet        = var.app_subnet
     databases         = var.databases
     database_users    = var.database_users

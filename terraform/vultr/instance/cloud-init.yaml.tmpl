@@ -63,6 +63,26 @@ write_files:
       ufw --force enable
       %{ endif ~}
 
+      %{ if harden_ssh ~}
+      # Key auth only. The filename has to sort before 50-cloud-init.conf,
+      # which ships PasswordAuthentication yes on Ubuntu: sshd takes the FIRST
+      # value it obtains for a keyword, so a 99- file would silently lose and
+      # leave passwords enabled while looking like it had disabled them.
+      cat > /etc/ssh/sshd_config.d/01-nexsware-hardening.conf <<SSHEOF
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin prohibit-password
+      SSHEOF
+
+      # Validate before applying. A config sshd refuses to parse means it will
+      # not come back up on restart, which is the same lockout by another route.
+      if sshd -t 2>/dev/null; then
+        systemctl reload ssh 2>/dev/null || systemctl restart ssh 2>/dev/null || true
+      else
+        rm -f /etc/ssh/sshd_config.d/01-nexsware-hardening.conf
+      fi
+      %{ endif ~}
+
       # Runs after the firewall is up, so anything installed here that needs a
       # port must open it — either by adding to public_ports/internal_rules
       # above, or with its own ufw call.
