@@ -156,6 +156,15 @@ on:
       DARAJA_PASSKEY:
         description: 'M-Pesa Daraja STK push passkey (mapped to Daraja__Passkey)'
         required: false
+      META_WHATSAPP_ACCESS_TOKEN:
+        description: 'Meta WhatsApp Cloud API System User token (mapped to MetaWhatsApp__AccessToken)'
+        required: false
+      META_WHATSAPP_APP_SECRET:
+        description: 'Meta app secret, verifies the X-Hub-Signature-256 on inbound webhooks (mapped to MetaWhatsApp__AppSecret)'
+        required: false
+      META_WHATSAPP_WEBHOOK_VERIFY_TOKEN:
+        description: 'Self-chosen token echoed on Meta''s webhook subscription handshake (mapped to MetaWhatsApp__WebhookVerifyToken)'
+        required: false
 
     outputs:
       image_tag:
@@ -349,6 +358,21 @@ jobs:
           if [ -n "${{ secrets.DARAJA_PASSKEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e Daraja__Passkey='${{ secrets.DARAJA_PASSKEY }}'"
           fi
+          # WhatsApp, direct to Meta. Each is optional and omitted when unset,
+          # which is the whole point: with no AccessToken the API does not
+          # register a sending provider at all and refuses a send loudly, rather
+          # than registering a real client that 401s on every call and reads as
+          # an outage. PhoneNumberId and DisplayPhoneNumber are not secrets and
+          # travel through env_vars / appsettings instead.
+          if [ -n "${{ secrets.META_WHATSAPP_ACCESS_TOKEN }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e MetaWhatsApp__AccessToken='${{ secrets.META_WHATSAPP_ACCESS_TOKEN }}'"
+          fi
+          if [ -n "${{ secrets.META_WHATSAPP_APP_SECRET }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e MetaWhatsApp__AppSecret='${{ secrets.META_WHATSAPP_APP_SECRET }}'"
+          fi
+          if [ -n "${{ secrets.META_WHATSAPP_WEBHOOK_VERIFY_TOKEN }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e MetaWhatsApp__WebhookVerifyToken='${{ secrets.META_WHATSAPP_WEBHOOK_VERIFY_TOKEN }}'"
+          fi
           if [ -n "${{ secrets.ENCRYPTION_HMAC_KEY }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e Encryption__HmacKey='${{ secrets.ENCRYPTION_HMAC_KEY }}'"
           fi
@@ -411,6 +435,22 @@ jobs:
           fi
 
           echo "Logging in to GitHub Container Registry..."
+          # Disk check BEFORE anything touches Docker. A full disk first shows
+          # up as `docker login` failing to write its own ~1KB credentials file
+          # — "error saving credentials: ... no space left on device" — which
+          # reads like an auth problem and sends the next person looking at
+          # image sizes. Say the real thing, early.
+          echo "Disk usage on /:"
+          df -h /
+          DISK_PCT=$(df --output=pcent / | tail -1 | tr -dc '0-9')
+          if [ "${DISK_PCT:-0}" -ge 90 ]; then
+            echo "✗ / is ${DISK_PCT}% full — too full to pull an image safely."
+            echo "  Usual consumers are dangling images and container logs:"
+            docker system df || true
+            echo "  Free space with: docker image prune -af && journalctl --vacuum-size=200M"
+            exit 1
+          fi
+
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
           echo "Pulling latest image..."
@@ -421,9 +461,16 @@ jobs:
           docker rm ${CONTAINER_NAME} 2>/dev/null || true
 
           echo "Starting new container..."
+          # Log caps are not optional here. The default json-file driver grows
+          # without bound, and this API logs per-message delivery receipts and
+          # per-webhook lines — with --restart unless-stopped it keeps writing
+          # across reboots until the disk is gone. 3 x 50MB per container.
           docker run -d \
             --name ${CONTAINER_NAME} \
             --restart unless-stopped \
+            --log-driver json-file \
+            --log-opt max-size=50m \
+            --log-opt max-file=3 \
             -p ${{ inputs.container_port }}:${{ inputs.container_port }} \
             -e ASPNETCORE_ENVIRONMENT="${{ inputs.environment }}" \
             -e DOTNET_ENVIRONMENT="${{ inputs.environment }}" \
@@ -443,6 +490,20 @@ jobs:
             docker logs ${CONTAINER_NAME}
             exit 1
           fi
+
+          # Reclaim the previous image, and only now. The tag is fixed
+          # (:test, :prod), so every pull moves it and orphans the image the
+          # last deploy was running — roughly 250MB each time, with nothing in
+          # this workflow ever removing them. That is what filled a 22GB disk.
+          #
+          # After the health check, never before: until the new container is up,
+          # the old image is the only thing left to roll back to. A running
+          # container holds a reference to its own image, so this cannot remove
+          # what is in use, and a prune that fails must not fail a deploy that
+          # has already succeeded.
+          echo "Reclaiming unused images..."
+          docker image prune -af || true
+          df -h /
           ENDSSH
 
           echo "status=success" >> $GITHUB_OUTPUT
