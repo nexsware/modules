@@ -61,6 +61,16 @@ on:
         required: false
         type: string
         default: ''
+      # Opt-in, and it has to stay opt-in: turning www on adds the name to the
+      # certbot command, so the ACME http-01 challenge must succeed for it too.
+      # A caller whose DNS has no www record would start failing at the cert
+      # step — a working deploy broken by a flag it never asked for. Set this
+      # only once www.{domain} resolves to the same server.
+      include_www:
+        description: 'Also serve and certify www.{domain}. Requires a www DNS record pointing at this server, or certbot will fail.'
+        required: false
+        type: boolean
+        default: false
       certbot_email:
         description: 'Email for certbot SSL certificate. Leave empty to skip SSL.'
         required: false
@@ -135,6 +145,7 @@ jobs:
           SUBDOMAIN: ${{ inputs.subdomain }}
           NGINX_DOMAIN: ${{ inputs.nginx_domain }}
           ENVIRONMENT: ${{ inputs.environment }}
+          INCLUDE_WWW: ${{ inputs.include_www }}
         run: |
           if [ -n "${NGINX_DOMAIN}" ]; then
             RESOLVED="${NGINX_DOMAIN}"
@@ -156,6 +167,20 @@ jobs:
 
           echo "DEPLOY_DOMAIN=${RESOLVED}" >> "$GITHUB_ENV"
           echo "Deploying to ${RESOLVED}"
+
+          # server_name and the certbot -d list are derived here for the same
+          # reason DEPLOY_DOMAIN is: the two must name exactly the same set of
+          # hosts. Deriving them separately is how nginx ends up answering on a
+          # name the certificate does not cover — which is the whole bug this
+          # input exists to fix.
+          if [ "${INCLUDE_WWW}" = "true" ]; then
+            echo "DEPLOY_SERVER_NAMES=${RESOLVED} www.${RESOLVED}" >> "$GITHUB_ENV"
+            echo "DEPLOY_CERTBOT_ARGS=-d ${RESOLVED} -d www.${RESOLVED}" >> "$GITHUB_ENV"
+            echo "Also serving www.${RESOLVED}"
+          else
+            echo "DEPLOY_SERVER_NAMES=${RESOLVED}" >> "$GITHUB_ENV"
+            echo "DEPLOY_CERTBOT_ARGS=-d ${RESOLVED}" >> "$GITHUB_ENV"
+          fi
 
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -250,6 +275,8 @@ jobs:
         run: |
           SERVER_IP="${{ inputs.server_ip }}"
           DOMAIN="${DEPLOY_DOMAIN}"
+          SERVER_NAMES="${DEPLOY_SERVER_NAMES}"
+          CERTBOT_ARGS="${DEPLOY_CERTBOT_ARGS}"
           EMAIL="${{ inputs.certbot_email }}"
 
           # Built here rather than inline in the server block so the config
@@ -319,7 +346,7 @@ jobs:
           cat > /etc/nginx/sites-available/${DOMAIN} << 'NGINXEOF'
           server {
               listen 80;
-              server_name ${DOMAIN};
+              server_name ${SERVER_NAMES};
               root /var/www/${DOMAIN};
               index index.html;
 
@@ -367,7 +394,18 @@ jobs:
             if ! command -v certbot &> /dev/null; then
               apt-get install -y certbot python3-certbot-nginx
             fi
-            certbot --nginx -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive --redirect
+            # CERTBOT_ARGS lists ${DOMAIN} first, so the lineage keeps its name
+            # and /etc/letsencrypt/live/${DOMAIN}/ stays where renewals and the
+            # nginx config below expect it, whether or not www is included.
+            #
+            # --expand is what lets an already-issued certificate gain a name.
+            # Certbot's default for "the names you asked for are a superset of
+            # an existing lineage" is to ask, and --non-interactive turns being
+            # asked into an error ("Please specify --expand"), so without this
+            # the first deploy after switching include_www on fails at the cert
+            # step. It is inert when the name set is unchanged — equal is not a
+            # strict subset — so callers with www off reissue nothing.
+            certbot --nginx ${CERTBOT_ARGS} --expand --email ${EMAIL} --agree-tos --non-interactive --redirect
 
             # certbot writes the TLS listener but never turns on HTTP/2, and a
             # site that ships a dozen hashed chunks pays for that in head-of-line
@@ -386,6 +424,48 @@ jobs:
                 mv "\${CONF}.pre-http2" "\${CONF}"
               fi
               rm -f "\${CONF}.pre-http2"
+            fi
+
+            # Canonicalisation. Without this the SPA answers on both names and
+            # search engines see one site at two addresses; with it www is a
+            # 301 to the canonical host and only one address is ever indexed.
+            #
+            # It goes on the 443 block, and only there, because ACME http-01
+            # validation arrives on port 80 — so no arrangement of this line
+            # can interfere with issuance or renewal. That is the whole reason
+            # it is applied here as a post-certbot edit rather than written
+            # into the template above: a redirect in the port-80 block would
+            # run in nginx's server rewrite phase, which happens BEFORE location
+            # matching, and would swallow the challenge certbot inserts as a
+            # location. Renewal would then fail ~60 days later, far from this
+            # change and hard to connect back to it.
+            #
+            # "if" inside a server block is normally a trap, but "return" is one
+            # of the two directives nginx documents as safe there, and it is the
+            # same construction certbot's own --redirect emits.
+            #
+            # The marker matched here is the whole redirect, not just the www
+            # host test: certbot's --redirect writes a byte-identical
+            # "if (\$host = www.<domain>)" into its port-80 block, so a looser
+            # grep matches THAT, concludes the work is already done, and this
+            # never runs even once. The full line is unambiguous because ours
+            # redirects to the canonical host and certbot's to \$host.
+            if [ "${SERVER_NAMES}" != "${DOMAIN}" ] && ! grep -qF "return 301 https://${DOMAIN}\\\$request_uri" "\${CONF}"; then
+              # A quoted heredoc on the remote side keeps \$host and \$request_uri
+              # out of the reach of the remote shell; they are already escaped
+              # once above to survive this workflow's own unquoted heredoc.
+              cat > /tmp/canonical-www.awk << 'AWKEOF'
+          { print }
+          /listen[^;]*443 ssl/ && !inserted { print "    if (\$host = www." D ") { return 301 https://" D "\$request_uri; }"; inserted = 1 }
+          AWKEOF
+              cp "\${CONF}" "\${CONF}.pre-canonical"
+              if awk -v D="${DOMAIN}" -f /tmp/canonical-www.awk "\${CONF}.pre-canonical" > "\${CONF}" && nginx -t; then
+                echo "www.${DOMAIN} now redirects to ${DOMAIN}."
+              else
+                echo "Canonical www redirect broke the config; reverting to the certbot output." >&2
+                cp "\${CONF}.pre-canonical" "\${CONF}"
+              fi
+              rm -f "\${CONF}.pre-canonical" /tmp/canonical-www.awk
             fi
 
             nginx -t

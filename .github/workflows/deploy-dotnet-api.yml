@@ -100,6 +100,16 @@ on:
         required: false
         type: string
         default: ''
+      # Opt-in, and it has to stay opt-in: turning www on adds the name to the
+      # certbot command, so the ACME http-01 challenge must succeed for it too.
+      # A caller whose DNS has no www record would start failing at the cert
+      # step — a working deploy broken by a flag it never asked for. Set this
+      # only once www.{nginx_domain} resolves to the same server.
+      include_www:
+        description: 'Also serve and certify www.{nginx_domain}. Requires a www DNS record pointing at this server, or certbot will fail.'
+        required: false
+        type: boolean
+        default: false
       certbot_email:
         description: 'Email for certbot SSL certificate. Leave empty to skip SSL.'
         required: false
@@ -516,6 +526,19 @@ jobs:
           PORT="${{ inputs.container_port }}"
           EMAIL="${{ inputs.certbot_email }}"
 
+          # server_name and the certbot -d list are derived together so the two
+          # always name the same set of hosts. Deriving them apart is how nginx
+          # ends up answering on a name the certificate does not cover. DOMAIN
+          # stays first in the -d list, so the lineage keeps its name and
+          # /etc/letsencrypt/live/${DOMAIN}/ stays where renewals expect it.
+          if [ "${{ inputs.include_www }}" = "true" ]; then
+            SERVER_NAMES="${DOMAIN} www.${DOMAIN}"
+            CERTBOT_ARGS="-d ${DOMAIN} -d www.${DOMAIN}"
+          else
+            SERVER_NAMES="${DOMAIN}"
+            CERTBOT_ARGS="-d ${DOMAIN}"
+          fi
+
           ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << ENDSSH
           set -e
           if ! command -v nginx &> /dev/null; then
@@ -536,7 +559,7 @@ jobs:
           cat > /etc/nginx/sites-available/${DOMAIN} << 'NGINXEOF'
           server {
               listen 80;
-              server_name ${DOMAIN};
+              server_name ${SERVER_NAMES};
               # nginx defaults to 1m, which silently caps every file upload the
               # API accepts. Worse, nginx answers an oversize request itself,
               # before the app's CORS headers are applied, so the browser
@@ -566,7 +589,14 @@ jobs:
             if ! command -v certbot &> /dev/null; then
               apt-get install -y certbot python3-certbot-nginx
             fi
-            certbot --nginx -d ${DOMAIN} --email ${EMAIL} --agree-tos --non-interactive --redirect
+            # --expand is what lets an already-issued certificate gain a name.
+            # Certbot's default for "the names you asked for are a superset of
+            # an existing lineage" is to ask, and --non-interactive turns being
+            # asked into an error ("Please specify --expand"), so without this
+            # the first deploy after switching include_www on fails at the cert
+            # step. It is inert when the name set is unchanged — equal is not a
+            # strict subset — so callers with www off reissue nothing.
+            certbot --nginx ${CERTBOT_ARGS} --expand --email ${EMAIL} --agree-tos --non-interactive --redirect
             systemctl reload nginx
           fi
           ENDSSH
