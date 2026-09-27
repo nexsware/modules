@@ -175,6 +175,12 @@ on:
       META_WHATSAPP_WEBHOOK_VERIFY_TOKEN:
         description: 'Self-chosen token echoed on Meta''s webhook subscription handshake (mapped to MetaWhatsApp__WebhookVerifyToken)'
         required: false
+      OPENSKY_CLIENT_ID:
+        description: 'OpenSky Network API client id, OAuth2 client credentials (mapped to OpenSky__ClientId)'
+        required: false
+      OPENSKY_CLIENT_SECRET:
+        description: 'OpenSky Network API client secret (mapped to OpenSky__ClientSecret)'
+        required: false
 
     outputs:
       image_tag:
@@ -394,6 +400,16 @@ jobs:
           fi
           if [ -n "${{ secrets.SENTRY_DSN }}" ]; then
             ENV_FLAGS="$ENV_FLAGS -e Sentry__Dsn='${{ secrets.SENTRY_DSN }}'"
+          fi
+          # OpenSky flight tracking. Optional: without a client the API still
+          # reads live aircraft positions anonymously; the pair only adds the
+          # next-day arrivals backstop. Whether tracking runs at all is
+          # OpenSky:Enabled in the app's appsettings, not a secret.
+          if [ -n "${{ secrets.OPENSKY_CLIENT_ID }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e OpenSky__ClientId='${{ secrets.OPENSKY_CLIENT_ID }}'"
+          fi
+          if [ -n "${{ secrets.OPENSKY_CLIENT_SECRET }}" ]; then
+            ENV_FLAGS="$ENV_FLAGS -e OpenSky__ClientSecret='${{ secrets.OPENSKY_CLIENT_SECRET }}'"
           fi
 
           # Inject connection strings from JSON: {"KeyName":"value"} → -e ConnectionStrings__KeyName='value'
