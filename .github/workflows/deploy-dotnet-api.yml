@@ -572,36 +572,100 @@ jobs:
           }
           MAPEOF
           fi
-          cat > /etc/nginx/sites-available/${DOMAIN} << 'NGINXEOF'
+          # The proxy block, shared by the plain-HTTP and HTTPS server blocks
+          # below, so the two can never drift apart.
+          mkdir -p /etc/nginx/snippets
+          cat > /etc/nginx/snippets/${DOMAIN}-proxy.conf << 'PROXYEOF'
+          # nginx defaults to 1m, which silently caps every file upload the
+          # API accepts. Worse, nginx answers an oversize request itself,
+          # before the app's CORS headers are applied, so the browser
+          # blocks the 413 and the client sees an unreadable network error
+          # instead of a size message. Set above the app's own limit so
+          # oversize files are rejected by the API, with its real reason.
+          client_max_body_size 20m;
+          location / {
+              proxy_pass         http://127.0.0.1:${PORT};
+              proxy_http_version 1.1;
+              proxy_set_header   Upgrade     \$http_upgrade;
+              proxy_set_header   Connection  \$connection_upgrade;
+              proxy_set_header   Host        \$host;
+              proxy_set_header   X-Real-IP   \$remote_addr;
+              proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
+              proxy_set_header   X-Forwarded-Proto \$scheme;
+              proxy_cache_bypass \$http_upgrade;
+              proxy_read_timeout 3600s;
+          }
+          PROXYEOF
+
+          # Serve HTTPS from the certificate already on the server whenever it
+          # is still valid. This step used to write a port-80-only site, reload
+          # nginx, and rely on certbot to put HTTPS back; when certbot could
+          # not reach Let's Encrypt the deploy left the API with no HTTPS at
+          # all. Now the existing certificate goes straight into the config,
+          # and certbot runs only when it is missing, lacks one of the names,
+          # or has under 30 days left. If that certbot run fails, the job
+          # still fails (so it is seen), but nginx keeps serving HTTPS with
+          # the certificate it already had — certbot rolls back its own edits.
+          CERT=/etc/letsencrypt/live/${DOMAIN}/fullchain.pem
+          KEY=/etc/letsencrypt/live/${DOMAIN}/privkey.pem
+          USE_EXISTING_CERT=false
+          NEED_CERTBOT=false
+          if [ -n "${EMAIL}" ]; then
+            NEED_CERTBOT=true
+            if [ -f "\$CERT" ] && [ -f "\$KEY" ] \\
+               && openssl x509 -checkend 0 -noout -in "\$CERT" > /dev/null; then
+              USE_EXISTING_CERT=true
+              NEED_CERTBOT=false
+              if ! openssl x509 -checkend 2592000 -noout -in "\$CERT" > /dev/null; then
+                NEED_CERTBOT=true
+              fi
+              for NAME in ${SERVER_NAMES}; do
+                if ! openssl x509 -noout -ext subjectAltName -in "\$CERT" \\
+                     | tr ',' '\n' | sed 's/^ *//' | grep -qxF "DNS:\$NAME"; then
+                  NEED_CERTBOT=true
+                fi
+              done
+            fi
+          fi
+
+          if [ "\$USE_EXISTING_CERT" = "true" ]; then
+            echo "Reusing the existing certificate for ${SERVER_NAMES}"
+            : > /etc/nginx/snippets/${DOMAIN}-ssl.conf
+            if [ -f /etc/letsencrypt/options-ssl-nginx.conf ]; then
+              echo "include /etc/letsencrypt/options-ssl-nginx.conf;" >> /etc/nginx/snippets/${DOMAIN}-ssl.conf
+            fi
+            if [ -f /etc/letsencrypt/ssl-dhparams.pem ]; then
+              echo "ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;" >> /etc/nginx/snippets/${DOMAIN}-ssl.conf
+            fi
+            cat > /etc/nginx/sites-available/${DOMAIN} << 'NGINXEOF'
           server {
               listen 80;
               server_name ${SERVER_NAMES};
-              # nginx defaults to 1m, which silently caps every file upload the
-              # API accepts. Worse, nginx answers an oversize request itself,
-              # before the app's CORS headers are applied, so the browser
-              # blocks the 413 and the client sees an unreadable network error
-              # instead of a size message. Set above the app's own limit so
-              # oversize files are rejected by the API, with its real reason.
-              client_max_body_size 20m;
-              location / {
-                  proxy_pass         http://127.0.0.1:${PORT};
-                  proxy_http_version 1.1;
-                  proxy_set_header   Upgrade     \$http_upgrade;
-                  proxy_set_header   Connection  \$connection_upgrade;
-                  proxy_set_header   Host        \$host;
-                  proxy_set_header   X-Real-IP   \$remote_addr;
-                  proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-                  proxy_set_header   X-Forwarded-Proto \$scheme;
-                  proxy_cache_bypass \$http_upgrade;
-                  proxy_read_timeout 3600s;
-              }
+              return 301 https://\$host\$request_uri;
+          }
+          server {
+              listen 443 ssl;
+              server_name ${SERVER_NAMES};
+              ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+              include /etc/nginx/snippets/${DOMAIN}-ssl.conf;
+              include /etc/nginx/snippets/${DOMAIN}-proxy.conf;
           }
           NGINXEOF
+          else
+            cat > /etc/nginx/sites-available/${DOMAIN} << 'NGINXEOF'
+          server {
+              listen 80;
+              server_name ${SERVER_NAMES};
+              include /etc/nginx/snippets/${DOMAIN}-proxy.conf;
+          }
+          NGINXEOF
+          fi
           ln -sf /etc/nginx/sites-available/${DOMAIN} /etc/nginx/sites-enabled/${DOMAIN}
           rm -f /etc/nginx/sites-enabled/default
           nginx -t
           systemctl reload nginx
-          if [ -n "${EMAIL}" ]; then
+          if [ "\$NEED_CERTBOT" = "true" ]; then
             if ! command -v certbot &> /dev/null; then
               apt-get install -y certbot python3-certbot-nginx
             fi
